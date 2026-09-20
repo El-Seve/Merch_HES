@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Evidencias Merch HES</title>
+<link rel="stylesheet" href="/css/estilos.css">
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="vista-login" class="vista activa">
+  <main style="padding-top:15vh">
+    <div class="tarjeta">
+      <h1 style="margin-top:0">Evidencias Merch HES</h1>
+      <label for="login-usuario">Usuario</label>
+      <input id="login-usuario" autocomplete="username">
+      <label for="login-password">Contraseña</label>
+      <input id="login-password" type="password" autocomplete="current-password">
+      <div id="login-error" class="estado-error-app oculto"></div>
+      <button class="btn-primario btn-bloque" id="btn-login">Ingresar</button>
+    </div>
+  </main>
+</div>
+
+<!-- APP (post-login) -->
+<div id="vista-app" class="vista">
+  <div class="app-header">
+    <h1>Evidencias Merch HES</h1>
+    <div style="display:flex; align-items:center; gap:8px">
+      <span class="rol-badge" id="rol-badge"></span>
+      <button id="btn-salir" class="btn-secundario" style="min-height:32px; padding:4px 10px; font-size:12px">Salir</button>
+    </div>
+  </div>
+
+  <main>
+
+    <!-- NUEVA ENTREGA -->
+    <section id="panel-nueva-entrega" class="panel">
+      <div class="tarjeta">
+        <h2 style="margin-top:0; font-size:16px">Nueva entrega de merchandising</h2>
+        <div id="nueva-entrega-msg"></div>
+
+        <label>Tienda HES</label>
+        <select id="ne-tienda"></select>
+
+        <label id="lbl-promotor-wrap" class="oculto">Promotor</label>
+        <select id="ne-promotor" class="oculto"></select>
+
+        <label>Fecha de entrega</label>
+        <input type="date" id="ne-fecha">
+
+        <label>Tipo de merchandising</label>
+        <input id="ne-tipo" placeholder="Ej: Coffee Cup HONOR Talents">
+
+        <label>Cantidad entregada</label>
+        <input id="ne-cantidad" type="number" min="1">
+
+        <label>Observaciones (opcional)</label>
+        <textarea id="ne-obs"></textarea>
+
+        <label>Fotografías</label>
+        <input type="file" id="ne-fotos" accept="image/*" capture="environment" multiple>
+        <div class="previews" id="ne-previews"></div>
+
+        <div id="ne-progreso" class="oculto" style="margin-top:12px; font-size:13px; color:#6b7378"></div>
+        <button class="btn-primario btn-bloque" id="btn-guardar-entrega">Guardar entrega</button>
+      </div>
+    </section>
+
+    <!-- EVIDENCIAS -->
+    <section id="panel-evidencias" class="panel oculto">
+      <div class="kpis" id="ev-kpis"></div>
+
+      <div class="tarjeta">
+        <h2 style="margin-top:0; font-size:16px">Filtros</h2>
+        <div class="grid-2">
+          <div>
+            <label>Tienda</label>
+            <select id="f-tienda"><option value="">Todas</option></select>
+          </div>
+          <div id="f-promotor-wrap" class="oculto">
+            <label>Promotor</label>
+            <select id="f-promotor"><option value="">Todos</option></select>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div><label>Desde</label><input type="date" id="f-desde"></div>
+          <div><label>Hasta</label><input type="date" id="f-hasta"></div>
+        </div>
+        <button class="btn-secundario btn-bloque" id="btn-filtrar">Aplicar filtros</button>
+      </div>
+
+      <div class="tarjeta" id="lista-entregas">
+        <div class="estado-cargando">Cargando...</div>
+      </div>
+    </section>
+
+    <!-- PRESENTACIONES (solo admin) -->
+    <section id="panel-presentaciones" class="panel oculto">
+      <div class="tarjeta">
+        <h2 style="margin-top:0; font-size:16px">Generar presentación</h2>
+        <p style="font-size:13px; color:#6b7378">Usa los mismos filtros que en Evidencias. Selecciona una o varias tiendas.</p>
+        <label>Tiendas</label>
+        <select id="p-tiendas" multiple size="6"></select>
+        <div id="p-msg"></div>
+        <button class="btn-primario btn-bloque" id="btn-pres-tienda">Presentación por tienda</button>
+        <button class="btn-secundario btn-bloque" id="btn-pres-consolidada">Presentación consolidada</button>
+      </div>
+    </section>
+
+    <!-- ADMIN: catálogos -->
+    <section id="panel-admin" class="panel oculto">
+      <div class="tarjeta">
+        <h2 style="margin-top:0; font-size:16px">Estado de OneDrive</h2>
+        <div id="onedrive-estado"></div>
+      </div>
+      <div class="tarjeta">
+        <h2 style="margin-top:0; font-size:16px">Tiendas HES</h2>
+        <div id="lista-tiendas"></div>
+        <hr style="border:none;border-top:1px solid var(--is-mist); margin:16px 0">
+        <label>Nombre</label><input id="t-nombre">
+        <label>Ciudad</label><input id="t-ciudad">
+        <label>Distribuidor</label>
+        <select id="t-distribuidor"><option value="QTC">QTC</option><option value="Sany">Sany</option></select>
+        <button class="btn-primario btn-bloque" id="btn-add-tienda">Agregar tienda</button>
+      </div>
+      <div class="tarjeta">
+        <h2 style="margin-top:0; font-size:16px">Promotores</h2>
+        <div id="lista-promotores"></div>
+        <hr style="border:none;border-top:1px solid var(--is-mist); margin:16px 0">
+        <label>Nombre</label><input id="pr-nombre">
+        <label>Tienda asignada</label>
+        <select id="pr-tienda"></select>
+        <label>Usuario de acceso</label><input id="pr-usuario">
+        <label>Contraseña</label><input id="pr-password">
+        <button class="btn-primario btn-bloque" id="btn-add-promotor">Agregar promotor</button>
+      </div>
+    </section>
+
+  </main>
+
+  <div class="nav-inferior">
+    <button data-panel="panel-nueva-entrega" class="activo">Nueva entrega</button>
+    <button data-panel="panel-evidencias">Evidencias</button>
+    <button data-panel="panel-presentaciones" id="nav-presentaciones" class="oculto">Presentación</button>
+    <button data-panel="panel-admin" id="nav-admin" class="oculto">Admin</button>
+  </div>
+</div>
+
+<script src="/js/app.js"></script>
+</body>
+</html>
