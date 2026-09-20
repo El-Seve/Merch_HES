@@ -4,19 +4,13 @@ const fs = require('fs');
 const path = require('path');
 const { db, reservarCorrelativo, correlativoFormateado } = require('../db');
 const graph = require('../graph');
+const { procesarImagen } = require('../imagenes');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
 const PENDIENTES_DIR = path.join(__dirname, '..', '..', 'data', 'pendientes');
 if (!fs.existsSync(PENDIENTES_DIR)) fs.mkdirSync(PENDIENTES_DIR, { recursive: true });
-
-function extensionDe(nombreOriginal, mimetype) {
-  const porNombre = path.extname(nombreOriginal || '').replace('.', '').toLowerCase();
-  if (porNombre) return porNombre;
-  const mapa = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/heic': 'heic' };
-  return mapa[mimetype] || 'jpg';
-}
 
 /** Sube una foto ya registrada en BD (estado subiendo/error) y actualiza su fila. */
 async function procesarFoto(foto, entrega, nombreTienda) {
@@ -68,6 +62,7 @@ router.post('/', upload.array('fotos', 20), async (req, res) => {
 
   const tienda = db.prepare('SELECT nombre FROM tiendas WHERE id = ?').get(tienda_id);
   if (!tienda) return res.status(400).json({ error: 'Tienda no encontrada' });
+  const promotor = db.prepare('SELECT nombre FROM promotores WHERE id = ?').get(promotorId);
 
   const infoEntrega = db
     .prepare(
@@ -81,13 +76,19 @@ router.post('/', upload.array('fotos', 20), async (req, res) => {
   try {
     for (const archivo of req.files) {
       const n = reservarCorrelativo(); // síncrono -> sin condición de carrera, ver db.js
-      const nombreArchivo = `Merch_${correlativoFormateado(n)}.${extensionDe(archivo.originalname, archivo.mimetype)}`;
-      fs.writeFileSync(path.join(PENDIENTES_DIR, nombreArchivo), archivo.buffer);
+      const nombreArchivo = `Merch_${correlativoFormateado(n)}.jpg`;
+      // Comprime, redimensiona y marca con agua (tienda/promotor/fecha) antes de guardar.
+      const bufferProcesado = await procesarImagen(archivo.buffer, {
+        tiendaNombre: tienda.nombre,
+        promotorNombre: promotor?.nombre || 'Promotor',
+        fechaISO: fecha,
+      });
+      fs.writeFileSync(path.join(PENDIENTES_DIR, nombreArchivo), bufferProcesado);
       const infoFoto = db
         .prepare(
-          "INSERT INTO fotos (entrega_id, correlativo, nombre_archivo, extension, estado) VALUES (?, ?, ?, ?, 'pendiente')"
+          "INSERT INTO fotos (entrega_id, correlativo, nombre_archivo, extension, estado) VALUES (?, ?, ?, 'jpg', 'pendiente')"
         )
-        .run(entregaId, n, nombreArchivo, extensionDe(archivo.originalname, archivo.mimetype));
+        .run(entregaId, n, nombreArchivo);
       fotosCreadas.push({ id: infoFoto.lastInsertRowid, nombre_archivo: nombreArchivo });
     }
   } catch (e) {

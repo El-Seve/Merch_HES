@@ -133,11 +133,15 @@ async function cargarEstadoOneDrive() {
 }
 
 // --- Nueva entrega: previsualización de fotos ---
-$('ne-fotos').onchange = (e) => {
-  ARCHIVOS_SELECCIONADOS = ARCHIVOS_SELECCIONADOS.concat(Array.from(e.target.files));
+$('btn-tomar-foto').onclick = () => $('ne-fotos-camara').click();
+$('btn-elegir-galeria').onclick = () => $('ne-fotos-galeria').click();
+
+function agregarArchivosSeleccionados(lista) {
+  ARCHIVOS_SELECCIONADOS = ARCHIVOS_SELECCIONADOS.concat(Array.from(lista));
   renderizarPreviews();
-  e.target.value = '';
-};
+}
+$('ne-fotos-camara').onchange = (e) => { agregarArchivosSeleccionados(e.target.files); e.target.value = ''; };
+$('ne-fotos-galeria').onchange = (e) => { agregarArchivosSeleccionados(e.target.files); e.target.value = ''; };
 function renderizarPreviews() {
   $('ne-previews').innerHTML = ARCHIVOS_SELECCIONADOS.map((f, i) =>
     `<div class="miniatura"><img src="${URL.createObjectURL(f)}"><button data-i="${i}">×</button></div>`

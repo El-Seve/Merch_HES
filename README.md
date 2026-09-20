@@ -7,7 +7,8 @@ App para registrar y consultar evidencias fotográficas de entrega de merchandis
 - Backend Node/Express + SQLite (`backend/`) que sirve también el frontend (una sola app, un solo proceso).
 - Frontend mobile-first en HTML/CSS/JS plano (sin build step) — funciona igual de bien en celular y en computadora.
 - Integración real con OneDrive personal vía **rclone** (sin Azure App Registration), con **modo demostración** para probar todo sin conectar nada aún.
-- Correlativo global `Merch_0001.ext` → `Merch_9999.ext`, a prueba de cargas simultáneas (ver comentario en `backend/src/db.js`, función `reservarCorrelativo`).
+- Correlativo global `Merch_0001.jpg` → `Merch_9999.jpg`, a prueba de cargas simultáneas (ver comentario en `backend/src/db.js`, función `reservarCorrelativo`).
+- Cada foto se **comprime y redimensiona automáticamente** (máx. 1920px de lado, JPEG calidad 85 — visualmente igual, mucho más liviana) y lleva **marca de agua** con tienda, promotor y fecha/hora, antes de subirse (`backend/src/imagenes.js`).
 - Generación de presentaciones PPTX (por tienda y consolidada) replicando el layout de `docs/Plantilla_Liquidación_Merch.pptx` que enviaste (portada + grilla de 10 fotos por diapositiva).
 - Catálogo de tiendas/promotores **provisional** (2 tiendas y 2 promotores de ejemplo) — lo reemplazas por el real desde el panel Admin en cuanto me pases la tabla.
 - Usuarios de prueba: `admin` / `admin` y `promotor1` / `1234`.
