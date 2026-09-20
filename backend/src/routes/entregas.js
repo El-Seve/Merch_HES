@@ -31,8 +31,8 @@ async function procesarFoto(foto, entrega, nombreTienda) {
       fechaISO: entrega.fecha,
     });
     db.prepare(
-      "UPDATE fotos SET estado = 'completo', onedrive_item_id = ?, onedrive_path = ? WHERE id = ?"
-    ).run(resultado.id, resultado.path, foto.id);
+      "UPDATE fotos SET estado = 'completo', onedrive_path = ? WHERE id = ?"
+    ).run(resultado.path, foto.id);
     // Solo borramos el respaldo local una vez confirmada la subida.
     fs.unlinkSync(rutaStaging);
     return true;

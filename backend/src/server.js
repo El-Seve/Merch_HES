@@ -26,22 +26,6 @@ app.get('/api/estado/onedrive', middlewareAuth, soloAdmin, async (req, res) => {
   res.json({ modo: graph.MODO, conectado: await graph.onedriveConectado() });
 });
 
-// --- Flujo de autorización de OneDrive personal (una sola vez, lo hace el admin) ---
-app.get('/auth/onedrive/login', middlewareAuth, soloAdmin, async (req, res) => {
-  const url = await graph.urlDeAutorizacion();
-  res.redirect(url);
-});
-app.get('/auth/onedrive/callback', async (req, res) => {
-  try {
-    await graph.intercambiarCodigo(req.query.code);
-    res.send(
-      '<h2>OneDrive conectado correctamente ✅</h2><p>Puedes cerrar esta pestaña y volver a la aplicación.</p>'
-    );
-  } catch (e) {
-    res.status(500).send(`<h2>Error al conectar OneDrive</h2><pre>${e.message}</pre>`);
-  }
-});
-
 // --- Rutas de la aplicación (todas requieren sesión) ---
 app.use('/api/tiendas', middlewareAuth, require('./routes/tiendas'));
 app.use('/api/promotores', middlewareAuth, require('./routes/promotores'));

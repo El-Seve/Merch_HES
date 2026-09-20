@@ -1,5 +1,6 @@
 data/*
 !data/.gitkeep
 node_modules/
+bin/
 .env
 *.log

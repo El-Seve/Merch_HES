@@ -1,80 +1,52 @@
-const msal = require('@azure/msal-node');
-const fetch = require('node-fetch');
 const fs = require('fs');
 const path = require('path');
+const { execFile } = require('child_process');
 
 const MODO = process.env.MODO || 'demo';
-const CACHE_PATH = path.join(__dirname, '..', 'data', 'msal-cache.json');
 const DEMO_DIR = path.join(__dirname, '..', 'data', 'demo-fotos');
-
 if (!fs.existsSync(DEMO_DIR)) fs.mkdirSync(DEMO_DIR, { recursive: true });
 
-// --- Persistencia simple del cache de tokens de MSAL (así el refresh token
-// sobrevive a reinicios del servidor y no hay que volver a autorizar cada vez) ---
-const cachePlugin = {
-  beforeCacheAccess: async (ctx) => {
-    if (fs.existsSync(CACHE_PATH)) {
-      ctx.tokenCache.deserialize(fs.readFileSync(CACHE_PATH, 'utf8'));
-    }
-  },
-  afterCacheAccess: async (ctx) => {
-    if (ctx.cacheHasChanged) {
-      fs.writeFileSync(CACHE_PATH, ctx.tokenCache.serialize());
-    }
-  },
-};
+const RCLONE_BIN = process.env.RCLONE_BIN || path.join(__dirname, '..', 'bin', 'rclone');
+const RCLONE_CONF_PATH =
+  process.env.RCLONE_CONFIG_PATH || path.join(__dirname, '..', 'data', 'rclone.conf');
+const REMOTE = process.env.RCLONE_REMOTE_NAME || 'onedrive';
 
-let msalApp = null;
-function getMsalApp() {
-  if (msalApp) return msalApp;
-  msalApp = new msal.ConfidentialClientApplication({
-    auth: {
-      clientId: process.env.AZURE_CLIENT_ID,
-      authority: `https://login.microsoftonline.com/${process.env.AZURE_TENANT || 'consumers'}`,
-      clientSecret: process.env.AZURE_CLIENT_SECRET,
-    },
-    cache: cachePlugin,
-  });
-  return msalApp;
-}
-
-const SCOPES = ['Files.ReadWrite', 'offline_access', 'User.Read'];
-
-function urlDeAutorizacion() {
-  return getMsalApp().getAuthCodeUrl({
-    scopes: SCOPES,
-    redirectUri: process.env.AZURE_REDIRECT_URI,
-  });
-}
-
-async function intercambiarCodigo(code) {
-  const resultado = await getMsalApp().acquireTokenByCode({
-    code,
-    scopes: SCOPES,
-    redirectUri: process.env.AZURE_REDIRECT_URI,
-  });
-  return resultado;
-}
-
-async function obtenerTokenSilencioso() {
-  const app = getMsalApp();
-  const cuentas = await app.getTokenCache().getAllAccounts();
-  if (cuentas.length === 0) {
-    const err = new Error('ONEDRIVE_NO_CONECTADO');
-    err.code = 'ONEDRIVE_NO_CONECTADO';
-    throw err;
+// El contenido del archivo rclone.conf (generado UNA vez en tu propia PC con
+// `rclone config`) se pega completo como variable de entorno RCLONE_CONFIG_CONTENT
+// en Render. Al arrancar el servidor lo volcamos a un archivo real, porque rclone
+// necesita leerlo de disco.
+function prepararConfigRclone() {
+  if (MODO === 'demo') return;
+  const contenido = process.env.RCLONE_CONFIG_CONTENT;
+  if (contenido && contenido.trim()) {
+    fs.mkdirSync(path.dirname(RCLONE_CONF_PATH), { recursive: true });
+    fs.writeFileSync(RCLONE_CONF_PATH, contenido.trim() + '\n');
   }
-  const resultado = await app.acquireTokenSilent({
-    account: cuentas[0],
-    scopes: SCOPES,
+}
+prepararConfigRclone();
+
+function ejecutarRclone(args) {
+  return new Promise((resolve, reject) => {
+    execFile(
+      RCLONE_BIN,
+      args,
+      { maxBuffer: 1024 * 1024 * 50, encoding: 'buffer', env: { ...process.env, RCLONE_CONFIG: RCLONE_CONF_PATH } },
+      (error, stdout, stderr) => {
+        if (error) {
+          error.stderrTexto = stderr ? stderr.toString('utf8') : '';
+          return reject(error);
+        }
+        resolve(stdout);
+      }
+    );
   });
-  return resultado.accessToken;
 }
 
 async function onedriveConectado() {
   if (MODO === 'demo') return true;
+  if (!fs.existsSync(RCLONE_CONF_PATH)) return false;
   try {
-    await obtenerTokenSilencioso();
+    await ejecutarRclone(['lsd', `${REMOTE}:`, '--max-depth', '1']);
     return true;
   } catch {
     return false;
@@ -96,11 +68,8 @@ function rutaCarpeta(nombreTienda, fechaISO) {
 }
 
 /**
- * Sube una fotografía. En modo demo la guarda en disco local (misma
- * estructura de carpetas) para poder probar todo el flujo sin credenciales
- * de Microsoft reales. En modo producción sube de verdad a OneDrive.
- *
- * @returns {{ id: string, path: string, demo: boolean }}
+ * Sube una fotografía. En modo demo la guarda en disco local (misma estructura
+ * de carpetas). En modo producción la sube de verdad a OneDrive vía rclone.
  */
 async function subirFoto({ buffer, nombreArchivo, nombreTienda, fechaISO }) {
   const carpeta = rutaCarpeta(nombreTienda, fechaISO);
@@ -110,78 +79,30 @@ async function subirFoto({ buffer, nombreArchivo, nombreTienda, fechaISO }) {
     const destino = path.join(DEMO_DIR, carpeta.replace(/\//g, path.sep));
     fs.mkdirSync(destino, { recursive: true });
     fs.writeFileSync(path.join(destino, nombreArchivo), buffer);
-    return { id: `demo-${Date.now()}-${nombreArchivo}`, path: rutaCompleta, demo: true };
+    return { path: rutaCompleta, demo: true };
   }
 
-  const token = await obtenerTokenSilencioso();
-  const CUATRO_MB = 4 * 1024 * 1024;
-
-  if (buffer.length <= CUATRO_MB) {
-    // Subida simple. Graph crea las carpetas intermedias que falten.
-    const resp = await fetch(
-      `https://graph.microsoft.com/v1.0/me/drive/root:/${encodeURI(rutaCompleta)}:/content`,
-      {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/octet-stream' },
-        body: buffer,
-      }
-    );
-    if (!resp.ok) throw new Error(`GRAPH_UPLOAD_ERROR ${resp.status}: ${await resp.text()}`);
-    const data = await resp.json();
-    return { id: data.id, path: rutaCompleta, demo: false };
+  const temporal = path.join(require('os').tmpdir(), `subida-${Date.now()}-${nombreArchivo}`);
+  fs.writeFileSync(temporal, buffer);
+  try {
+    await ejecutarRclone(['copyto', temporal, `${REMOTE}:${rutaCompleta}`]);
+  } finally {
+    fs.unlinkSync(temporal);
   }
-
-  // Archivo grande: sesión de carga reanudable (necesaria a partir de ~4MB por spec de Graph)
-  const sesionResp = await fetch(
-    `https://graph.microsoft.com/v1.0/me/drive/root:/${encodeURI(rutaCompleta)}:/createUploadSession`,
-    {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ item: { '@microsoft.graph.conflictBehavior': 'fail' } }),
-    }
-  );
-  if (!sesionResp.ok) throw new Error(`GRAPH_SESSION_ERROR ${sesionResp.status}`);
-  const sesion = await sesionResp.json();
-
-  const CHUNK = 320 * 1024 * 10; // ~3.2MB por chunk (múltiplo de 320KiB, requisito de Graph)
-  let subido = 0;
-  let ultimaRespuesta = null;
-  while (subido < buffer.length) {
-    const fin = Math.min(subido + CHUNK, buffer.length);
-    const trozo = buffer.subarray(subido, fin);
-    const r = await fetch(sesion.uploadUrl, {
-      method: 'PUT',
-      headers: {
-        'Content-Length': String(trozo.length),
-        'Content-Range': `bytes ${subido}-${fin - 1}/${buffer.length}`,
-      },
-      body: trozo,
-    });
-    if (!r.ok) throw new Error(`GRAPH_CHUNK_ERROR ${r.status}: ${await r.text()}`);
-    ultimaRespuesta = await r.json();
-    subido = fin;
-  }
-  return { id: ultimaRespuesta.id, path: rutaCompleta, demo: false };
+  return { path: rutaCompleta, demo: false };
 }
 
-/** Descarga bytes de una foto ya subida (para incrustarla en el PPTX). */
+/** Descarga bytes de una foto ya subida (para incrustarla en el PPTX o mostrarla en el panel). */
 async function descargarFoto(fotoDb) {
   if (MODO === 'demo' || fotoDb.demo) {
     const destino = path.join(DEMO_DIR, fotoDb.onedrive_path.replace(/\//g, path.sep));
     return fs.readFileSync(destino);
   }
-  const token = await obtenerTokenSilencioso();
-  const resp = await fetch(`https://graph.microsoft.com/v1.0/me/drive/items/${fotoDb.onedrive_item_id}/content`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!resp.ok) throw new Error(`GRAPH_DOWNLOAD_ERROR ${resp.status}`);
-  return Buffer.from(await resp.arrayBuffer());
+  return ejecutarRclone(['cat', `${REMOTE}:${fotoDb.onedrive_path}`]);
 }
 
 module.exports = {
   MODO,
-  urlDeAutorizacion,
-  intercambiarCodigo,
   onedriveConectado,
   subirFoto,
   descargarFoto,

@@ -5,20 +5,18 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --watch src/server.js"
+    "dev": "node --watch src/server.js",
+    "postinstall": "bash scripts/setup-rclone.sh"
   },
   "dependencies": {
     "express": "^4.19.2",
     "better-sqlite3": "^11.3.0",
-    "@azure/msal-node": "^2.13.1",
     "multer": "^2.0.1",
     "bcryptjs": "^2.4.3",
     "jsonwebtoken": "^9.0.2",
     "pptxgenjs": "^3.12.0",
     "dotenv": "^16.4.5",
     "cors": "^2.8.5",
-    "node-fetch": "^2.7.0",
-    "sharp": "^0.33.5",
     "archiver": "^7.0.1"
   },
   "license": "MIT"

@@ -124,12 +124,11 @@ async function cargarEstadoOneDrive() {
   const r = await api('/api/estado/onedrive');
   const el = $('onedrive-estado');
   if (r.modo === 'demo') {
-    el.innerHTML = `<div class="estado-ok-app">Modo demostración activo: las fotos se guardan localmente, no en OneDrive real. Cambia MODO=produccion en el servidor cuando tengas credenciales de Azure.</div>`;
+    el.innerHTML = `<div class="estado-ok-app">Modo demostración activo: las fotos se guardan localmente, no en OneDrive real. Cambia MODO=produccion (y configura RCLONE_CONFIG_CONTENT) cuando estés listo — ver README, sección "Conectar OneDrive".</div>`;
   } else if (r.conectado) {
     el.innerHTML = `<div class="estado-ok-app">OneDrive conectado ✅</div>`;
   } else {
-    el.innerHTML = `<div class="estado-error-app">OneDrive NO conectado.</div>
-      <a href="/auth/onedrive/login" target="_blank"><button class="btn-primario btn-bloque">Conectar OneDrive</button></a>`;
+    el.innerHTML = `<div class="estado-error-app">OneDrive NO conectado. Revisa que la variable de entorno RCLONE_CONFIG_CONTENT esté bien pegada en el servidor (ver README, sección "Conectar OneDrive").</div>`;
   }
 }
 
