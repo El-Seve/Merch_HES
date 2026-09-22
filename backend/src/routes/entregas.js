@@ -7,10 +7,27 @@ const graph = require('../graph');
 const { procesarImagen } = require('../imagenes');
 
 const router = express.Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+const LIMITE_FOTOS_POR_ENTREGA = 100; // liquidaciones grandes pueden traer 50+ fotos
+const CONCURRENCIA_SUBIDA = 4; // cuántas fotos se procesan/suben en paralelo
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },
+});
 
 const PENDIENTES_DIR = path.join(__dirname, '..', '..', 'data', 'pendientes');
 if (!fs.existsSync(PENDIENTES_DIR)) fs.mkdirSync(PENDIENTES_DIR, { recursive: true });
+
+/** Corre `worker` sobre `items` con un máximo de `limite` tareas en paralelo. */
+async function limitarConcurrencia(items, limite, worker) {
+  let indice = 0;
+  async function siguiente() {
+    while (indice < items.length) {
+      const miIndice = indice++;
+      await worker(items[miIndice], miIndice);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limite, items.length) }, siguiente));
+}
 
 /** Sube una foto ya registrada en BD (estado subiendo/error) y actualiza su fila. */
 async function procesarFoto(foto, entrega, nombreTienda) {
@@ -48,7 +65,7 @@ function recalcularEstadoEntrega(entregaId) {
 }
 
 // --- Registrar nueva entrega con sus fotografías ---
-router.post('/', upload.array('fotos', 20), async (req, res) => {
+router.post('/', upload.array('fotos', LIMITE_FOTOS_POR_ENTREGA), async (req, res) => {
   const { tienda_id, fecha, tipo_merch, cantidad, observaciones } = req.body;
   const promotorId =
     req.usuario.rol === 'promotor' ? req.usuario.promotor_id : req.body.promotor_id;
@@ -73,8 +90,9 @@ router.post('/', upload.array('fotos', 20), async (req, res) => {
   const entregaId = infoEntrega.lastInsertRowid;
 
   const fotosCreadas = [];
+  const entrega = { fecha };
   try {
-    for (const archivo of req.files) {
+    await limitarConcurrencia(req.files, CONCURRENCIA_SUBIDA, async (archivo) => {
       const n = reservarCorrelativo(); // síncrono -> sin condición de carrera, ver db.js
       const nombreArchivo = `Merch_${correlativoFormateado(n)}.jpg`;
       // Comprime, redimensiona y marca con agua (tienda/promotor/fecha) antes de guardar.
@@ -89,8 +107,11 @@ router.post('/', upload.array('fotos', 20), async (req, res) => {
           "INSERT INTO fotos (entrega_id, correlativo, nombre_archivo, extension, estado) VALUES (?, ?, ?, 'jpg', 'pendiente')"
         )
         .run(entregaId, n, nombreArchivo);
-      fotosCreadas.push({ id: infoFoto.lastInsertRowid, nombre_archivo: nombreArchivo });
-    }
+      const fotoDb = { id: infoFoto.lastInsertRowid, nombre_archivo: nombreArchivo };
+      fotosCreadas.push(fotoDb);
+      // Subida a OneDrive (rclone) — en el mismo worker, así queda paralelizada con el resto.
+      await procesarFoto(fotoDb, entrega, tienda.nombre);
+    });
   } catch (e) {
     if (e.code === 'LIMITE_CORRELATIVO') {
       return res.status(507).json({
@@ -101,11 +122,6 @@ router.post('/', upload.array('fotos', 20), async (req, res) => {
     throw e;
   }
 
-  const entrega = { fecha };
-  for (const f of fotosCreadas) {
-    const fotoDb = db.prepare('SELECT * FROM fotos WHERE id = ?').get(f.id);
-    await procesarFoto(fotoDb, entrega, tienda.nombre);
-  }
   recalcularEstadoEntrega(entregaId);
 
   const entregaFinal = db.prepare('SELECT * FROM entregas WHERE id = ?').get(entregaId);
@@ -125,13 +141,15 @@ router.post('/:id/reintentar', async (req, res) => {
     .prepare("SELECT * FROM fotos WHERE entrega_id = ? AND estado != 'completo'")
     .all(entrega.id);
 
-  for (const foto of pendientes) {
-    await procesarFoto(foto, entrega, tienda.nombre);
-  }
+  await limitarConcurrencia(pendientes, CONCURRENCIA_SUBIDA, (foto) =>
+    procesarFoto(foto, entrega, tienda.nombre)
+  );
   recalcularEstadoEntrega(entrega.id);
   const fotosFinal = db.prepare('SELECT * FROM fotos WHERE entrega_id = ?').all(entrega.id);
   res.json({ fotos: fotosFinal });
 });
+
+
 
 // --- Consulta con filtros (tienda, promotor, rango de fechas) ---
 router.get('/', (req, res) => {
@@ -233,3 +251,20 @@ router.get('/fotos/:id/contenido', async (req, res) => {
 });
 
 module.exports = router;
+
+// --- Manejo de errores de subida (Multer): mensaje claro en vez de "Error al guardar" genérico ---
+router.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({
+        error: 'Una de las fotos pesa más de 25 MB. Reduce la resolución de la cámara e inténtalo de nuevo.',
+      });
+    }
+    return res.status(400).json({
+      error: `No se pudo procesar la subida (${err.message}). Máximo ${LIMITE_FOTOS_POR_ENTREGA} fotos por entrega.`,
+    });
+  }
+  console.error('Error en /api/entregas:', err);
+  res.status(500).json({ error: 'Ocurrió un error inesperado al guardar la entrega. Inténtalo de nuevo.' });
+});
+
