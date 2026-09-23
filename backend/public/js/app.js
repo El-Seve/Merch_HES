@@ -285,11 +285,12 @@ const _cargarEvidenciasOriginal = cargarEvidencias;
 cargarEvidencias = async function () { await _cargarEvidenciasOriginal(); reemplazarImagenesConAuth(); };
 
 // --- Presentaciones (admin) ---
-$('btn-pres-tienda').onclick = () => generarPresentacion('/api/presentaciones/por-tienda');
-$('btn-pres-consolidada').onclick = () => generarPresentacion('/api/presentaciones/consolidada');
+$('btn-pres-tienda').onclick = () => generarPresentacion('/api/presentaciones/por-tienda', 'p-msg');
+$('btn-pres-consolidada').onclick = () => generarPresentacion('/api/presentaciones/consolidada', 'p-msg');
+$('btn-pres-recuperacion').onclick = () => generarPresentacion('/api/presentaciones/recuperar-onedrive', 'p-msg-recuperacion');
 
-async function generarPresentacion(ruta) {
-  const msg = $('p-msg');
+async function generarPresentacion(ruta, idMensaje) {
+  const msg = $(idMensaje);
   msg.innerHTML = '<div class="estado-cargando">Generando presentación...</div>';
   const tienda_ids = Array.from($('p-tiendas').selectedOptions).map((o) => Number(o.value));
   try {

@@ -101,10 +101,50 @@ async function descargarFoto(fotoDb) {
   return ejecutarRclone(['cat', `${REMOTE}:${fotoDb.onedrive_path}`]);
 }
 
+/**
+ * Lista TODOS los archivos guardados en OneDrive (recursivo), sin tocar la
+ * base de datos. Sirve para reconstruir reportes aunque se haya perdido el
+ * registro de entregas (ej. reinicio del contenedor sin disco persistente).
+ * Devuelve rutas relativas a ONEDRIVE_ROOT_FOLDER, ej. "MiTienda/2026/09/Merch_0001.jpg".
+ */
+async function listarArchivos() {
+  const root = process.env.ONEDRIVE_ROOT_FOLDER || 'Merch_HES';
+
+  if (MODO === 'demo') {
+    const base = path.join(DEMO_DIR, root);
+    const resultados = [];
+    function recorrer(dir, prefijo) {
+      if (!fs.existsSync(dir)) return;
+      for (const nombre of fs.readdirSync(dir)) {
+        const completo = path.join(dir, nombre);
+        if (fs.statSync(completo).isDirectory()) recorrer(completo, `${prefijo}${nombre}/`);
+        else resultados.push(`${prefijo}${nombre}`);
+      }
+    }
+    recorrer(base, '');
+    return resultados.sort();
+  }
+
+  const salida = await ejecutarRclone(['lsjson', `${REMOTE}:${root}`, '--recursive', '--files-only']);
+  const items = JSON.parse(salida.toString('utf8'));
+  return items.map((i) => i.Path).sort();
+}
+
+/** Lee un archivo por su ruta relativa a ONEDRIVE_ROOT_FOLDER (para el reporte de recuperación). */
+async function leerArchivoPorRuta(rutaRelativa) {
+  const root = process.env.ONEDRIVE_ROOT_FOLDER || 'Merch_HES';
+  if (MODO === 'demo') {
+    return fs.readFileSync(path.join(DEMO_DIR, root, rutaRelativa));
+  }
+  return ejecutarRclone(['cat', `${REMOTE}:${root}/${rutaRelativa}`]);
+}
+
 module.exports = {
   MODO,
   onedriveConectado,
   subirFoto,
   descargarFoto,
+  listarArchivos,
+  leerArchivoPorRuta,
   sanear,
 };

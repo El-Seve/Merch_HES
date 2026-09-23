@@ -3,6 +3,7 @@ const archiver = require('archiver');
 const { db } = require('../db');
 const { soloAdmin } = require('../auth');
 const { generarPptxTienda, generarPptxConsolidado } = require('../pptx/generarPresentaciones');
+const { generarPptxRecuperacion } = require('../pptx/generarRecuperacion');
 
 const router = express.Router();
 router.use(soloAdmin); // solo el administrador genera presentaciones
@@ -135,3 +136,16 @@ router.post('/consolidada', async (req, res) => {
 });
 
 module.exports = router;
+
+// --- Recuperación: genera el consolidado leyendo DIRECTO de OneDrive, sin la base de datos ---
+// Útil si se perdió el registro de entregas (ej. reinicio de contenedor sin disco persistente)
+// pero las fotos siguen a salvo en OneDrive.
+router.post('/recuperar-onedrive', async (req, res) => {
+  const { buffer, totalTiendas, totalFotos } = await generarPptxRecuperacion();
+  if (!buffer) {
+    return res.status(404).json({ error: 'No se encontró ninguna fotografía en OneDrive para reconstruir.' });
+  }
+  res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
+  res.set('Content-Disposition', 'attachment; filename="Merch_Recuperado_OneDrive.pptx"');
+  res.send(buffer);
+});
