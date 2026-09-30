@@ -86,12 +86,12 @@ async function cargarCatalogos() {
   opcionesTiendas($('pr-tienda'), false);
   $('p-tiendas').innerHTML = tiendas.map((t) => `<option value="${t.id}">${t.nombre}</option>`).join('');
 
-  const opcionesPromotores = (sel, incluirTodas) => {
-    sel.innerHTML = (incluirTodas ? '<option value="">Todos</option>' : '') +
+  const opcionesPromotores = (sel, placeholder) => {
+    sel.innerHTML = (placeholder ? `<option value="">${placeholder}</option>` : '') +
       promotores.map((p) => `<option value="${p.id}">${p.nombre} — ${p.tienda_nombre || ''}</option>`).join('');
   };
-  opcionesPromotores($('ne-promotor'), false);
-  opcionesPromotores($('f-promotor'), true);
+  opcionesPromotores($('ne-promotor'), 'Selecciona un promotor');
+  opcionesPromotores($('f-promotor'), 'Todos');
 
   $('ne-tipo-lista').innerHTML = tiposMerch.map((m) => `<option value="${m.descripcion}">`).join('');
 
