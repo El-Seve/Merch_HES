@@ -51,7 +51,8 @@
         <input type="date" id="ne-fecha">
 
         <label>Tipo de merchandising</label>
-        <input id="ne-tipo" placeholder="Ej: Coffee Cup HONOR Talents">
+        <input id="ne-tipo" list="ne-tipo-lista" placeholder="Selecciona o escribe el tipo de merchandising">
+        <datalist id="ne-tipo-lista"></datalist>
 
         <label>Cantidad entregada</label>
         <input id="ne-cantidad" type="number" min="1">
@@ -123,6 +124,12 @@
     <!-- ADMIN: catálogos -->
     <section id="panel-admin" class="panel oculto">
       <div class="tarjeta">
+        <h2 style="margin-top:0; font-size:16px">Catálogo real</h2>
+        <p style="font-size:13px; color:#6b7378">Carga las 24 tiendas HES y los 19 tipos de merchandising reales. Se puede presionar varias veces sin duplicar nada — solo agrega lo que falte.</p>
+        <div id="importar-msg"></div>
+        <button class="btn-primario btn-bloque" id="btn-importar-catalogo">Cargar catálogo real (tiendas + merchandising)</button>
+      </div>
+      <div class="tarjeta">
         <h2 style="margin-top:0; font-size:16px">Estado de OneDrive</h2>
         <div id="onedrive-estado"></div>
       </div>
@@ -131,7 +138,7 @@
         <div id="lista-tiendas"></div>
         <hr style="border:none;border-top:1px solid var(--is-mist); margin:16px 0">
         <label>Nombre</label><input id="t-nombre">
-        <label>Ciudad</label><input id="t-ciudad">
+        <label>Ciudad / Región</label><input id="t-ciudad">
         <label>Distribuidor</label>
         <select id="t-distribuidor"><option value="QTC">QTC</option><option value="Sany">Sany</option></select>
         <button class="btn-primario btn-bloque" id="btn-add-tienda">Agregar tienda</button>
@@ -146,6 +153,14 @@
         <label>Usuario de acceso</label><input id="pr-usuario">
         <label>Contraseña</label><input id="pr-password">
         <button class="btn-primario btn-bloque" id="btn-add-promotor">Agregar promotor</button>
+      </div>
+      <div class="tarjeta">
+        <h2 style="margin-top:0; font-size:16px">Tipos de merchandising</h2>
+        <div id="lista-tipos-merch"></div>
+        <hr style="border:none;border-top:1px solid var(--is-mist); margin:16px 0">
+        <label>Código</label><input id="tm-codigo">
+        <label>Descripción</label><input id="tm-descripcion">
+        <button class="btn-primario btn-bloque" id="btn-add-tipo-merch">Agregar tipo</button>
       </div>
     </section>
 

@@ -29,8 +29,15 @@ app.get('/api/estado/onedrive', middlewareAuth, soloAdmin, async (req, res) => {
 // --- Rutas de la aplicación (todas requieren sesión) ---
 app.use('/api/tiendas', middlewareAuth, require('./routes/tiendas'));
 app.use('/api/promotores', middlewareAuth, require('./routes/promotores'));
+app.use('/api/tipos-merch', middlewareAuth, require('./routes/tiposMerch'));
 app.use('/api/entregas', middlewareAuth, require('./routes/entregas'));
 app.use('/api/presentaciones', middlewareAuth, require('./routes/presentaciones'));
+
+// --- Importar catálogo real (tiendas + merchandising) — se puede correr las veces que sea ---
+app.post('/api/admin/importar-catalogo-real', middlewareAuth, soloAdmin, (req, res) => {
+  const { importarCatalogoReal } = require('./seedReal');
+  res.json(importarCatalogoReal());
+});
 
 // --- Frontend estático (mobile-first, sin build step) ---
 app.use(express.static(path.join(__dirname, '..', 'public')));

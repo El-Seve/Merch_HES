@@ -74,7 +74,9 @@ document.querySelectorAll('.nav-inferior button').forEach((btn) => {
 
 // --- Catálogos (selects compartidos) ---
 async function cargarCatalogos() {
-  const [tiendas, promotores] = await Promise.all([api('/api/tiendas'), api('/api/promotores')]);
+  const [tiendas, promotores, tiposMerch] = await Promise.all([
+    api('/api/tiendas'), api('/api/promotores'), api('/api/tipos-merch'),
+  ]);
   const opcionesTiendas = (sel, incluirTodas) => {
     sel.innerHTML = (incluirTodas ? '<option value="">Todas</option>' : '') +
       tiendas.map((t) => `<option value="${t.id}">${t.nombre} (${t.ciudad || ''})</option>`).join('');
@@ -91,17 +93,23 @@ async function cargarCatalogos() {
   opcionesPromotores($('ne-promotor'), false);
   opcionesPromotores($('f-promotor'), true);
 
-  if (USUARIO.rol === 'admin') renderizarCatalogosAdmin(tiendas, promotores);
+  $('ne-tipo-lista').innerHTML = tiposMerch.map((m) => `<option value="${m.descripcion}">`).join('');
+
+  if (USUARIO.rol === 'admin') renderizarCatalogosAdmin(tiendas, promotores, tiposMerch);
 }
 
-function renderizarCatalogosAdmin(tiendas, promotores) {
+function renderizarCatalogosAdmin(tiendas, promotores, tiposMerch) {
   $('lista-tiendas').innerHTML = tiendas.map((t) =>
-    `<div class="entrega-item"><div class="fila-top"><span>${t.nombre} — ${t.ciudad || 's/d'} (${t.distribuidor || 's/d'})</span></div></div>`
+    `<div class="entrega-item"><div class="fila-top"><span>${t.nombre} — ${t.ciudad || 's/d'}</span></div></div>`
   ).join('') || '<p class="estado-vacio">Sin tiendas aún.</p>';
 
   $('lista-promotores').innerHTML = promotores.map((p) =>
     `<div class="entrega-item"><div class="fila-top"><span>${p.nombre} — ${p.tienda_nombre || 's/d'}</span></div></div>`
   ).join('') || '<p class="estado-vacio">Sin promotores aún.</p>';
+
+  $('lista-tipos-merch').innerHTML = tiposMerch.map((m) =>
+    `<div class="entrega-item"><div class="fila-top"><span>${m.descripcion} <span style="color:#6b7378">(${m.codigo})</span></span></div></div>`
+  ).join('') || '<p class="estado-vacio">Sin tipos de merchandising aún.</p>';
 }
 
 $('btn-add-tienda').onclick = async () => {
@@ -118,6 +126,24 @@ $('btn-add-promotor').onclick = async () => {
   }});
   $('pr-nombre').value = ''; $('pr-usuario').value = ''; $('pr-password').value = '';
   cargarCatalogos();
+};
+$('btn-add-tipo-merch').onclick = async () => {
+  await api('/api/tipos-merch', { method: 'POST', body: {
+    codigo: $('tm-codigo').value.trim(), descripcion: $('tm-descripcion').value.trim(),
+  }});
+  $('tm-codigo').value = ''; $('tm-descripcion').value = '';
+  cargarCatalogos();
+};
+$('btn-importar-catalogo').onclick = async () => {
+  const msg = $('importar-msg');
+  msg.innerHTML = '<div class="estado-cargando">Importando...</div>';
+  try {
+    const r = await api('/api/admin/importar-catalogo-real', { method: 'POST', body: {} });
+    msg.innerHTML = `<div class="estado-ok-app">Listo: ${r.tiendasNuevas} tienda(s) y ${r.merchNuevos} tipo(s) de merch nuevos agregados${r.desactivadas ? `, ${r.desactivadas} tienda(s) provisional(es) desactivadas` : ''}.</div>`;
+    cargarCatalogos();
+  } catch (e) {
+    msg.innerHTML = `<div class="estado-error-app">${e.message}</div>`;
+  }
 };
 
 async function cargarEstadoOneDrive() {
