@@ -55,6 +55,21 @@ async function procesarFoto(foto, entrega, nombreTienda) {
   }
 }
 
+/**
+ * Busca un promotor por nombre (sin distinguir mayúsculas/espacios extra) y si
+ * no existe lo crea al vuelo. Así el admin solo escribe el nombre y no hace
+ * falta mantener un catálogo completo de logins por cada promotor.
+ */
+function obtenerOCrearPromotorPorNombre(nombre, tiendaId) {
+  const limpio = nombre.trim();
+  const existente = db
+    .prepare("SELECT id FROM promotores WHERE lower(trim(nombre)) = lower(?) AND activo = 1")
+    .get(limpio);
+  if (existente) return existente.id;
+  const info = db.prepare('INSERT INTO promotores (nombre, tienda_id) VALUES (?, ?)').run(limpio, tiendaId);
+  return info.lastInsertRowid;
+}
+
 function recalcularEstadoEntrega(entregaId) {
   const fotos = db.prepare('SELECT estado FROM fotos WHERE entrega_id = ?').all(entregaId);
   const todasCompletas = fotos.length > 0 && fotos.every((f) => f.estado === 'completo');
@@ -67,11 +82,12 @@ function recalcularEstadoEntrega(entregaId) {
 // --- Registrar nueva entrega con sus fotografías ---
 router.post('/', upload.array('fotos', LIMITE_FOTOS_POR_ENTREGA), async (req, res) => {
   const { tienda_id, fecha, tipo_merch, cantidad, observaciones } = req.body;
-  const promotorId =
-    req.usuario.rol === 'promotor' ? req.usuario.promotor_id : req.body.promotor_id;
 
-  if (!tienda_id || !fecha || !tipo_merch || !cantidad || !promotorId) {
+  if (!tienda_id || !fecha || !tipo_merch || !cantidad) {
     return res.status(400).json({ error: 'Faltan campos obligatorios' });
+  }
+  if (req.usuario.rol !== 'promotor' && !(req.body.promotor_nombre || '').trim()) {
+    return res.status(400).json({ error: 'Escribe el nombre del promotor' });
   }
   if (!req.files || req.files.length === 0) {
     return res.status(400).json({ error: 'Debes adjuntar al menos una fotografía' });
@@ -79,6 +95,11 @@ router.post('/', upload.array('fotos', LIMITE_FOTOS_POR_ENTREGA), async (req, re
 
   const tienda = db.prepare('SELECT nombre FROM tiendas WHERE id = ?').get(tienda_id);
   if (!tienda) return res.status(400).json({ error: 'Tienda no encontrada' });
+
+  const promotorId =
+    req.usuario.rol === 'promotor'
+      ? req.usuario.promotor_id
+      : obtenerOCrearPromotorPorNombre(req.body.promotor_nombre, tienda_id);
   const promotor = db.prepare('SELECT nombre FROM promotores WHERE id = ?').get(promotorId);
 
   const infoEntrega = db

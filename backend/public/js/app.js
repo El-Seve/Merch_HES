@@ -86,12 +86,12 @@ async function cargarCatalogos() {
   opcionesTiendas($('pr-tienda'), false);
   $('p-tiendas').innerHTML = tiendas.map((t) => `<option value="${t.id}">${t.nombre}</option>`).join('');
 
-  const opcionesPromotores = (sel, placeholder) => {
-    sel.innerHTML = (placeholder ? `<option value="">${placeholder}</option>` : '') +
-      promotores.map((p) => `<option value="${p.id}">${p.nombre} — ${p.tienda_nombre || ''}</option>`).join('');
-  };
-  opcionesPromotores($('ne-promotor'), 'Selecciona un promotor');
-  opcionesPromotores($('f-promotor'), 'Todos');
+  // El filtro de Evidencias sigue siendo un desplegable (elegir entre existentes).
+  $('f-promotor').innerHTML = '<option value="">Todos</option>' +
+    promotores.map((p) => `<option value="${p.id}">${p.nombre} — ${p.tienda_nombre || ''}</option>`).join('');
+
+  // Nueva entrega (solo admin): campo de texto libre con sugerencias de nombres ya usados.
+  $('ne-promotor-lista').innerHTML = promotores.map((p) => `<option value="${p.nombre}">`).join('');
 
   $('ne-tipo-lista').innerHTML = tiposMerch.map((m) => `<option value="${m.descripcion}">`).join('');
 
@@ -191,8 +191,8 @@ $('btn-guardar-entrega').onclick = async () => {
   if (ARCHIVOS_SELECCIONADOS.length === 0) {
     msg.innerHTML = '<div class="estado-error-app">Adjunta al menos una fotografía.</div>'; return;
   }
-  if (USUARIO.rol === 'admin' && !$('ne-promotor').value) {
-    msg.innerHTML = '<div class="estado-error-app">Selecciona el promotor.</div>'; return;
+  if (USUARIO.rol === 'admin' && !$('ne-promotor').value.trim()) {
+    msg.innerHTML = '<div class="estado-error-app">Escribe el nombre del promotor.</div>'; return;
   }
 
   const fd = new FormData();
@@ -201,7 +201,7 @@ $('btn-guardar-entrega').onclick = async () => {
   fd.append('tipo_merch', tipo_merch);
   fd.append('cantidad', cantidad);
   fd.append('observaciones', $('ne-obs').value.trim());
-  if (USUARIO.rol === 'admin') fd.append('promotor_id', $('ne-promotor').value);
+  if (USUARIO.rol === 'admin') fd.append('promotor_nombre', $('ne-promotor').value.trim());
   ARCHIVOS_SELECCIONADOS.forEach((f) => fd.append('fotos', f));
 
   $('btn-guardar-entrega').disabled = true;
