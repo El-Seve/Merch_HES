@@ -2,16 +2,35 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-
-const { sembrarCatalogoProvisional } = require('./db');
-const { login, middlewareAuth, soloAdmin } = require('./auth');
 const graph = require('./graph');
 
-sembrarCatalogoProvisional();
+async function iniciar() {
+  // Si hay un respaldo de la base de datos en OneDrive (caso típico: el
+  // contenedor Free de Render acaba de arrancar desde cero), se restaura
+  // ANTES de abrir la base de datos con better-sqlite3.
+  const { restaurarSiExiste } = require('./dbRestore');
+  const restaurado = await restaurarSiExiste();
+  if (restaurado) console.log('Base de datos restaurada desde el respaldo de OneDrive.');
 
-const app = express();
-app.use(cors());
-app.use(express.json());
+  const { sembrarCatalogoProvisional, programarRespaldoPeriodico, respaldarBaseDeDatos } = require('./db');
+  const { login, middlewareAuth, soloAdmin } = require('./auth');
+
+  sembrarCatalogoProvisional();
+  programarRespaldoPeriodico();
+
+  const app = express();
+  app.use(cors());
+  app.use(express.json());
+
+  montarRutas(app, { login, middlewareAuth, soloAdmin, respaldarBaseDeDatos });
+
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`Merch HES corriendo en http://localhost:${PORT}  (modo: ${graph.MODO})`);
+  });
+}
+
+function montarRutas(app, { login, middlewareAuth, soloAdmin, respaldarBaseDeDatos }) {
 
 // --- Login (usuario/contraseña simple, como se acordó) ---
 app.post('/api/login', (req, res) => {
@@ -45,14 +64,21 @@ app.post('/api/admin/resetear-usuarios', middlewareAuth, soloAdmin, (req, res) =
   res.json(resetearUsuarios());
 });
 
+// --- Respaldo manual de la base de datos a OneDrive (para probar que funciona) ---
+app.post('/api/admin/respaldar-ahora', middlewareAuth, soloAdmin, async (req, res) => {
+  if (graph.MODO !== 'produccion') {
+    return res.status(400).json({ error: 'El respaldo solo aplica en modo producción (con OneDrive conectado).' });
+  }
+  await respaldarBaseDeDatos();
+  res.json({ ok: true });
+});
+
 // --- Frontend estático (mobile-first, sin build step) ---
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api') || req.path.startsWith('/auth')) return res.status(404).end();
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
+}
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Merch HES corriendo en http://localhost:${PORT}  (modo: ${graph.MODO})`);
-});
+iniciar();

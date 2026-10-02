@@ -1,6 +1,8 @@
 const Database = require('better-sqlite3');
 const path = require('path');
+const fs = require('fs');
 const bcrypt = require('bcryptjs');
+const graph = require('./graph');
 
 const DB_PATH = path.join(__dirname, '..', 'data', 'merch.db');
 const db = new Database(DB_PATH);
@@ -140,9 +142,48 @@ function sembrarCatalogoProvisional() {
   ).run('promotor2', hash, 'promotor', p2);
 }
 
+/**
+ * Respaldo gratuito del plan Free de Render (sin disco persistente): sube la
+ * base de datos completa a tu OneDrive (vía la misma conexión rclone que ya
+ * usan las fotos). `wal_checkpoint` vuelca todo lo pendiente al archivo
+ * principal antes de copiarlo, para que el respaldo quede 100% consistente.
+ */
+async function respaldarBaseDeDatos() {
+  if (graph.MODO !== 'produccion') return;
+  try {
+    db.pragma('wal_checkpoint(TRUNCATE)');
+    const buffer = fs.readFileSync(DB_PATH);
+    await graph.subirArchivoSistema(buffer, 'merch.db');
+  } catch (e) {
+    console.error('No se pudo respaldar la base de datos en OneDrive:', e.message);
+  }
+}
+
+const INTERVALO_RESPALDO_MS = 2 * 60 * 1000; // cada 2 minutos
+let intervaloRespaldo = null;
+
+/** Arranca el respaldo: uno inmediato, luego cada 2 min, y uno final al apagar. */
+function programarRespaldoPeriodico() {
+  if (graph.MODO !== 'produccion') return;
+
+  respaldarBaseDeDatos(); // asegura que el catálogo recién sembrado también quede a salvo
+  intervaloRespaldo = setInterval(respaldarBaseDeDatos, INTERVALO_RESPALDO_MS);
+
+  const respaldoFinal = async (señal) => {
+    clearInterval(intervaloRespaldo);
+    console.log(`Señal ${señal} recibida — respaldando base de datos antes de apagar...`);
+    await respaldarBaseDeDatos();
+    process.exit(0);
+  };
+  process.on('SIGTERM', () => respaldoFinal('SIGTERM'));
+  process.on('SIGINT', () => respaldoFinal('SIGINT'));
+}
+
 module.exports = {
   db,
   reservarCorrelativo,
   correlativoFormateado,
   sembrarCatalogoProvisional,
+  respaldarBaseDeDatos,
+  programarRespaldoPeriodico,
 };

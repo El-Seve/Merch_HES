@@ -12,11 +12,18 @@ async function api(ruta, opciones = {}) {
   }
   if (TOKEN) cabeceras['Authorization'] = `Bearer ${TOKEN}`;
   const resp = await fetch(ruta, { ...opciones, headers: cabeceras });
-  if (resp.status === 401) { cerrarSesion(); throw new Error('Sesión expirada'); }
+  const esLogin = ruta === '/api/login';
   const contentType = resp.headers.get('content-type') || '';
-  if (!contentType.includes('application/json')) return resp; // pptx/zip binarios
+  if (!contentType.includes('application/json')) {
+    if (resp.status === 401 && !esLogin) { cerrarSesion(); throw new Error('Sesión expirada'); }
+    return resp; // pptx/zip binarios
+  }
   const data = await resp.json();
-  if (!resp.ok) throw new Error(data.error || 'Error inesperado');
+  if (!resp.ok) {
+    // Un 401 en el login es "usuario/contraseña incorrectos", no una sesión que expiró.
+    if (resp.status === 401 && !esLogin) { cerrarSesion(); throw new Error('Sesión expirada'); }
+    throw new Error(data.error || 'Error inesperado');
+  }
   return data;
 }
 
@@ -129,6 +136,16 @@ $('btn-add-tipo-merch').onclick = async () => {
   }});
   $('tm-codigo').value = ''; $('tm-descripcion').value = '';
   cargarCatalogos();
+};
+$('btn-respaldar-ahora').onclick = async () => {
+  const msg = $('respaldo-msg');
+  msg.innerHTML = '<div class="estado-cargando">Respaldando...</div>';
+  try {
+    await api('/api/admin/respaldar-ahora', { method: 'POST', body: {} });
+    msg.innerHTML = '<div class="estado-ok-app">Respaldo guardado en OneDrive correctamente.</div>';
+  } catch (e) {
+    msg.innerHTML = `<div class="estado-error-app">${e.message}</div>`;
+  }
 };
 $('btn-resetear-usuarios').onclick = async () => {
   if (!confirm('Esto va a borrar TODOS los usuarios actuales y dejar solo 2 (admin + promotor). ¿Continuar?')) return;

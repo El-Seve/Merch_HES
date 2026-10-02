@@ -139,6 +139,44 @@ async function leerArchivoPorRuta(rutaRelativa) {
   return ejecutarRclone(['cat', `${REMOTE}:${root}/${rutaRelativa}`]);
 }
 
+/**
+ * Sube un archivo "de sistema" (no una foto de evidencia) a una carpeta fija
+ * _sistema/ dentro de tu OneDrive. Se usa para respaldar la base de datos
+ * SQLite completa, así el plan Free de Render (sin disco persistente) deja
+ * de perder el catálogo y las entregas cada vez que el contenedor se reinicia.
+ */
+async function subirArchivoSistema(buffer, nombreArchivo) {
+  const root = process.env.ONEDRIVE_ROOT_FOLDER || 'Merch_HES';
+  if (MODO === 'demo') {
+    const destino = path.join(DEMO_DIR, root, '_sistema');
+    fs.mkdirSync(destino, { recursive: true });
+    fs.writeFileSync(path.join(destino, nombreArchivo), buffer);
+    return;
+  }
+  const temporal = path.join(require('os').tmpdir(), `sys-${Date.now()}-${nombreArchivo}`);
+  fs.writeFileSync(temporal, buffer);
+  try {
+    await ejecutarRclone(['copyto', temporal, `${REMOTE}:${root}/_sistema/${nombreArchivo}`]);
+  } finally {
+    fs.unlinkSync(temporal);
+  }
+}
+
+/** Descarga un archivo de _sistema/ (ej. el respaldo de la base de datos). Null si no existe. */
+async function descargarArchivoSistema(nombreArchivo) {
+  const root = process.env.ONEDRIVE_ROOT_FOLDER || 'Merch_HES';
+  if (MODO === 'demo') {
+    const ruta = path.join(DEMO_DIR, root, '_sistema', nombreArchivo);
+    if (!fs.existsSync(ruta)) return null;
+    return fs.readFileSync(ruta);
+  }
+  try {
+    return await ejecutarRclone(['cat', `${REMOTE}:${root}/_sistema/${nombreArchivo}`]);
+  } catch {
+    return null;
+  }
+}
+
 module.exports = {
   MODO,
   onedriveConectado,
@@ -146,5 +184,7 @@ module.exports = {
   descargarFoto,
   listarArchivos,
   leerArchivoPorRuta,
+  subirArchivoSistema,
+  descargarArchivoSistema,
   sanear,
 };
