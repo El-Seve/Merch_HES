@@ -44,9 +44,6 @@
         <label>Tienda HES</label>
         <select id="ne-tienda"></select>
 
-        <label id="lbl-promotor-wrap" class="oculto">Nombre del promotor</label>
-        <input id="ne-promotor" list="ne-promotor-lista" class="oculto" placeholder="Escribe el nombre del promotor">
-        <datalist id="ne-promotor-lista"></datalist>
 
         <label>Fecha de entrega</label>
         <input type="date" id="ne-fecha">
@@ -129,6 +126,10 @@
         <p style="font-size:13px; color:#6b7378">Carga las 24 tiendas HES y los 19 tipos de merchandising reales. Se puede presionar varias veces sin duplicar nada — solo agrega lo que falte.</p>
         <div id="importar-msg"></div>
         <button class="btn-primario btn-bloque" id="btn-importar-catalogo">Cargar catálogo real (tiendas + merchandising)</button>
+        <hr style="border:none;border-top:1px solid var(--is-mist); margin:16px 0">
+        <p style="font-size:13px; color:#6b7378">Borra TODOS los usuarios actuales y deja solo 2: un admin y un promotor genérico compartido por el equipo. Úsalo con cuidado — es irreversible.</p>
+        <div id="reset-usuarios-msg"></div>
+        <button class="btn-peligro btn-bloque" id="btn-resetear-usuarios">Resetear usuarios (dejar solo admin + promotor)</button>
       </div>
       <div class="tarjeta">
         <h2 style="margin-top:0; font-size:16px">Estado de OneDrive</h2>

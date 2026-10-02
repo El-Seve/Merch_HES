@@ -39,6 +39,12 @@ app.post('/api/admin/importar-catalogo-real', middlewareAuth, soloAdmin, (req, r
   res.json(importarCatalogoReal());
 });
 
+// --- Borra todos los usuarios y deja solo 2: admin + promotor genérico ---
+app.post('/api/admin/resetear-usuarios', middlewareAuth, soloAdmin, (req, res) => {
+  const { resetearUsuarios } = require('./seedReal');
+  res.json(resetearUsuarios());
+});
+
 // --- Frontend estático (mobile-first, sin build step) ---
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.get('*', (req, res) => {

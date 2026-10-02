@@ -1,3 +1,4 @@
+const bcrypt = require('bcryptjs');
 const { db } = require('./db');
 
 // --- Fuente: Tablas_Basicas_-_Tiendas.xlsx (24 PDV HES reales por región) ---
@@ -84,4 +85,43 @@ function importarCatalogoReal() {
   return { tiendasNuevas, merchNuevos, desactivadas };
 }
 
-module.exports = { importarCatalogoReal };
+/**
+ * Borra TODOS los usuarios actuales y deja exactamente 2: un admin y un
+ * promotor genérico compartido por todo el equipo (ya no se distingue por
+ * persona, solo por tienda — como se pidió). Se puede correr las veces que
+ * sea; siempre vuelve a dejar solo estos 2.
+ */
+function resetearUsuarios() {
+  // Necesita un promotor_id válido (la tabla entregas lo exige). Se reutiliza
+  // uno llamado "Equipo HES" si ya existe, o se crea.
+  let generico = db
+    .prepare("SELECT id FROM promotores WHERE nombre = 'Equipo HES' AND activo = 1")
+    .get();
+  const promotorId = generico
+    ? generico.id
+    : db.prepare("INSERT INTO promotores (nombre, tienda_id) VALUES ('Equipo HES', NULL)").run()
+        .lastInsertRowid;
+
+  db.prepare('DELETE FROM usuarios').run();
+
+  const USUARIO_ADMIN = 'admin';
+  const PASSWORD_ADMIN = 'admin';
+  const USUARIO_PROMOTOR = 'promotor';
+  const PASSWORD_PROMOTOR = 'HES2026';
+
+  db.prepare(
+    "INSERT INTO usuarios (usuario, password_hash, rol, promotor_id) VALUES (?, ?, 'admin', ?)"
+  ).run(USUARIO_ADMIN, bcrypt.hashSync(PASSWORD_ADMIN, 10), promotorId);
+  db.prepare(
+    "INSERT INTO usuarios (usuario, password_hash, rol, promotor_id) VALUES (?, ?, 'promotor', ?)"
+  ).run(USUARIO_PROMOTOR, bcrypt.hashSync(PASSWORD_PROMOTOR, 10), promotorId);
+
+  return {
+    usuario_admin: USUARIO_ADMIN,
+    password_admin: PASSWORD_ADMIN,
+    usuario_promotor: USUARIO_PROMOTOR,
+    password_promotor: PASSWORD_PROMOTOR,
+  };
+}
+
+module.exports = { importarCatalogoReal, resetearUsuarios };

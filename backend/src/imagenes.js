@@ -43,7 +43,14 @@ async function procesarImagen(buffer, { tiendaNombre, promotorNombre, fechaISO }
     .toBuffer();
 
   const metadata = await sharp(redimensionada).metadata();
-  const horaTexto = new Date().toTimeString().slice(0, 5);
+  // Hora de Lima (UTC-5, sin horario de verano) sin importar en qué región del
+  // mundo esté corriendo el servidor (Render puede correr en UTC u otra zona).
+  const horaTexto = new Date().toLocaleTimeString('es-PE', {
+    timeZone: 'America/Lima',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
 
   const svg = construirSvgMarcaAgua({
     ancho: metadata.width,

@@ -27,8 +27,6 @@ function mostrarVistaApp() {
   if (USUARIO.rol === 'admin') {
     $('nav-admin').classList.remove('oculto');
     $('nav-presentaciones').classList.remove('oculto');
-    $('lbl-promotor-wrap').classList.remove('oculto');
-    $('ne-promotor').classList.remove('oculto');
     $('f-promotor-wrap').classList.remove('oculto');
   }
   cargarCatalogos();
@@ -91,8 +89,6 @@ async function cargarCatalogos() {
     promotores.map((p) => `<option value="${p.id}">${p.nombre} — ${p.tienda_nombre || ''}</option>`).join('');
 
   // Nueva entrega (solo admin): campo de texto libre con sugerencias de nombres ya usados.
-  $('ne-promotor-lista').innerHTML = promotores.map((p) => `<option value="${p.nombre}">`).join('');
-
   $('ne-tipo-lista').innerHTML = tiposMerch.map((m) => `<option value="${m.descripcion}">`).join('');
 
   if (USUARIO.rol === 'admin') renderizarCatalogosAdmin(tiendas, promotores, tiposMerch);
@@ -133,6 +129,17 @@ $('btn-add-tipo-merch').onclick = async () => {
   }});
   $('tm-codigo').value = ''; $('tm-descripcion').value = '';
   cargarCatalogos();
+};
+$('btn-resetear-usuarios').onclick = async () => {
+  if (!confirm('Esto va a borrar TODOS los usuarios actuales y dejar solo 2 (admin + promotor). ¿Continuar?')) return;
+  const msg = $('reset-usuarios-msg');
+  msg.innerHTML = '<div class="estado-cargando">Reseteando...</div>';
+  try {
+    const r = await api('/api/admin/resetear-usuarios', { method: 'POST', body: {} });
+    msg.innerHTML = `<div class="estado-ok-app">Listo. Usuario admin: <b>${r.usuario_admin}</b> / <b>${r.password_admin}</b><br>Usuario promotor: <b>${r.usuario_promotor}</b> / <b>${r.password_promotor}</b><br>Guárdalos — no se vuelven a mostrar aquí.</div>`;
+  } catch (e) {
+    msg.innerHTML = `<div class="estado-error-app">${e.message}</div>`;
+  }
 };
 $('btn-importar-catalogo').onclick = async () => {
   const msg = $('importar-msg');
@@ -191,17 +198,12 @@ $('btn-guardar-entrega').onclick = async () => {
   if (ARCHIVOS_SELECCIONADOS.length === 0) {
     msg.innerHTML = '<div class="estado-error-app">Adjunta al menos una fotografía.</div>'; return;
   }
-  if (USUARIO.rol === 'admin' && !$('ne-promotor').value.trim()) {
-    msg.innerHTML = '<div class="estado-error-app">Escribe el nombre del promotor.</div>'; return;
-  }
-
   const fd = new FormData();
   fd.append('tienda_id', tienda_id);
   fd.append('fecha', fecha);
   fd.append('tipo_merch', tipo_merch);
   fd.append('cantidad', cantidad);
   fd.append('observaciones', $('ne-obs').value.trim());
-  if (USUARIO.rol === 'admin') fd.append('promotor_nombre', $('ne-promotor').value.trim());
   ARCHIVOS_SELECCIONADOS.forEach((f) => fd.append('fotos', f));
 
   $('btn-guardar-entrega').disabled = true;
