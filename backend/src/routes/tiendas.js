@@ -31,4 +31,30 @@ router.delete('/:id', soloAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+// --- Eliminación DEFINITIVA de una tienda y todo su historial (entregas + fotos en BD) ---
+// Se usa cuando ya se borraron las fotos manualmente en OneDrive y hay que
+// reflejar eso en la app: no vuelve a tocar OneDrive, solo limpia la base de datos.
+router.delete('/:id/definitivo', soloAdmin, (req, res) => {
+  const tienda = db.prepare('SELECT * FROM tiendas WHERE id = ?').get(req.params.id);
+  if (!tienda) return res.status(404).json({ error: 'Tienda no encontrada' });
+
+  const borrar = db.transaction((tiendaId) => {
+    const entregas = db.prepare('SELECT id FROM entregas WHERE tienda_id = ?').all(tiendaId);
+    const idsEntregas = entregas.map((e) => e.id);
+    let fotosBorradas = 0;
+    if (idsEntregas.length) {
+      const placeholders = idsEntregas.map(() => '?').join(',');
+      fotosBorradas = db
+        .prepare(`DELETE FROM fotos WHERE entrega_id IN (${placeholders})`)
+        .run(...idsEntregas).changes;
+      db.prepare(`DELETE FROM entregas WHERE id IN (${placeholders})`).run(...idsEntregas);
+    }
+    db.prepare('DELETE FROM tiendas WHERE id = ?').run(tiendaId);
+    return { entregasBorradas: idsEntregas.length, fotosBorradas };
+  });
+
+  const resultado = borrar(Number(req.params.id));
+  res.json({ ok: true, tienda: tienda.nombre, ...resultado });
+});
+
 module.exports = router;

@@ -139,6 +139,28 @@
         <button class="btn-secundario btn-bloque" id="btn-respaldar-ahora">Respaldar base de datos ahora</button>
       </div>
       <div class="tarjeta">
+        <h2 style="margin-top:0; font-size:16px">Limpieza de datos</h2>
+        <p style="font-size:13px; color:#6b7378">Usa esto cuando ya borraste fotos o carpetas directamente en OneDrive y necesitas que la app deje de mostrar esos registros. Solo limpia la base de datos — no vuelve a tocar OneDrive.</p>
+        <label>Eliminar entregas puntuales (tienda + mes)</label>
+        <select id="limp-tienda"></select>
+        <div style="display:flex; gap:8px; margin-top:8px">
+          <select id="limp-anio" style="flex:1"></select>
+          <select id="limp-mes" style="flex:1">
+            <option value="1">Enero</option><option value="2">Febrero</option><option value="3">Marzo</option>
+            <option value="4">Abril</option><option value="5">Mayo</option><option value="6">Junio</option>
+            <option value="7">Julio</option><option value="8">Agosto</option><option value="9">Setiembre</option>
+            <option value="10">Octubre</option><option value="11">Noviembre</option><option value="12">Diciembre</option>
+          </select>
+        </div>
+        <div id="limp-entregas-msg"></div>
+        <button class="btn-peligro btn-bloque" id="btn-limpiar-entregas">Eliminar entregas de ese tienda+mes</button>
+        <hr style="border:none;border-top:1px solid var(--is-mist); margin:16px 0">
+        <label>Eliminar una tienda completa (definitivo)</label>
+        <select id="limp-tienda-definitivo"></select>
+        <div id="limp-tienda-msg"></div>
+        <button class="btn-peligro btn-bloque" id="btn-eliminar-tienda-definitivo">Eliminar tienda y su historial</button>
+      </div>
+      <div class="tarjeta">
         <h2 style="margin-top:0; font-size:16px">Tiendas HES</h2>
         <div id="lista-tiendas"></div>
         <hr style="border:none;border-top:1px solid var(--is-mist); margin:16px 0">

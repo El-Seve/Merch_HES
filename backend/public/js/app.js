@@ -89,6 +89,10 @@ async function cargarCatalogos() {
   opcionesTiendas($('ne-tienda'), false);
   opcionesTiendas($('f-tienda'), true);
   opcionesTiendas($('pr-tienda'), false);
+  if (USUARIO.rol === 'admin') {
+    opcionesTiendas($('limp-tienda'), false);
+    opcionesTiendas($('limp-tienda-definitivo'), false);
+  }
   $('p-tiendas').innerHTML = tiendas.map((t) => `<option value="${t.id}">${t.nombre}</option>`).join('');
 
   // El filtro de Evidencias sigue siendo un desplegable (elegir entre existentes).
@@ -165,6 +169,49 @@ $('btn-importar-catalogo').onclick = async () => {
     const r = await api('/api/admin/importar-catalogo-real', { method: 'POST', body: {} });
     msg.innerHTML = `<div class="estado-ok-app">Listo: ${r.tiendasNuevas} tienda(s) y ${r.merchNuevos} tipo(s) de merch nuevos agregados${r.desactivadas ? `, ${r.desactivadas} tienda(s) provisional(es) desactivadas` : ''}.</div>`;
     cargarCatalogos();
+  } catch (e) {
+    msg.innerHTML = `<div class="estado-error-app">${e.message}</div>`;
+  }
+};
+
+// --- Limpieza de datos (reflejar borrados manuales hechos en OneDrive) ---
+(function inicializarSelectorAnios() {
+  const sel = $('limp-anio');
+  if (!sel) return;
+  const añoActual = new Date().getFullYear();
+  const años = [añoActual, añoActual - 1, añoActual - 2];
+  sel.innerHTML = años.map((a) => `<option value="${a}">${a}</option>`).join('');
+})();
+
+$('btn-limpiar-entregas').onclick = async () => {
+  const tiendaId = $('limp-tienda').value;
+  const anio = $('limp-anio').value;
+  const mes = $('limp-mes').value;
+  const tiendaTexto = $('limp-tienda').selectedOptions[0]?.textContent || '';
+  const mesTexto = $('limp-mes').selectedOptions[0]?.textContent || '';
+  if (!confirm(`Esto va a borrar de la base de datos TODAS las entregas de ${tiendaTexto} en ${mesTexto} ${anio}. No se puede deshacer. ¿Continuar?`)) return;
+  const msg = $('limp-entregas-msg');
+  msg.innerHTML = '<div class="estado-cargando">Borrando...</div>';
+  try {
+    const r = await api(`/api/entregas/limpiar?tienda_id=${tiendaId}&anio=${anio}&mes=${mes}`, { method: 'DELETE' });
+    msg.innerHTML = `<div class="estado-ok-app">Listo: ${r.entregasBorradas} entrega(s) y ${r.fotosBorradas} foto(s) eliminadas del registro.</div>`;
+    cargarEvidencias();
+  } catch (e) {
+    msg.innerHTML = `<div class="estado-error-app">${e.message}</div>`;
+  }
+};
+
+$('btn-eliminar-tienda-definitivo').onclick = async () => {
+  const tiendaId = $('limp-tienda-definitivo').value;
+  const tiendaTexto = $('limp-tienda-definitivo').selectedOptions[0]?.textContent || '';
+  if (!confirm(`Esto va a ELIMINAR PARA SIEMPRE la tienda "${tiendaTexto}" junto con todo su historial de entregas y fotos en la base de datos. No se puede deshacer. ¿Continuar?`)) return;
+  const msg = $('limp-tienda-msg');
+  msg.innerHTML = '<div class="estado-cargando">Eliminando...</div>';
+  try {
+    const r = await api(`/api/tiendas/${tiendaId}/definitivo`, { method: 'DELETE' });
+    msg.innerHTML = `<div class="estado-ok-app">Listo: tienda "${r.tienda}" eliminada junto con ${r.entregasBorradas} entrega(s) y ${r.fotosBorradas} foto(s).</div>`;
+    cargarCatalogos();
+    cargarEvidencias();
   } catch (e) {
     msg.innerHTML = `<div class="estado-error-app">${e.message}</div>`;
   }

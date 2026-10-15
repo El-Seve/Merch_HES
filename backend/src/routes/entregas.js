@@ -5,6 +5,7 @@ const path = require('path');
 const { db, reservarCorrelativo, correlativoFormateado } = require('../db');
 const graph = require('../graph');
 const { procesarImagen } = require('../imagenes');
+const { soloAdmin } = require('../auth');
 
 const router = express.Router();
 const LIMITE_FOTOS_POR_ENTREGA = 100; // liquidaciones grandes pueden traer 50+ fotos
@@ -223,6 +224,40 @@ router.get('/resumen', (req, res) => {
     correlativoActual,
     correlativoRestante: 9999 - correlativoActual,
   });
+});
+
+// --- Limpieza puntual: borra entregas (y sus fotos) de una tienda en un año/mes concreto ---
+// Pensado para cuando ya se borraron fotos a mano en OneDrive y hay que
+// reflejar eso en la base de datos. Solo toca la BD, no vuelve a tocar OneDrive.
+router.delete('/limpiar', soloAdmin, (req, res) => {
+  const { tienda_id, anio, mes } = req.query;
+  if (!tienda_id || !anio || !mes) {
+    return res.status(400).json({ error: 'Faltan tienda_id, anio y mes' });
+  }
+  const mesPad = String(mes).padStart(2, '0');
+
+  const entregas = db
+    .prepare(
+      "SELECT id FROM entregas WHERE tienda_id = ? AND strftime('%Y', fecha) = ? AND strftime('%m', fecha) = ?"
+    )
+    .all(tienda_id, String(anio), mesPad);
+  const idsEntregas = entregas.map((e) => e.id);
+
+  if (!idsEntregas.length) {
+    return res.json({ ok: true, entregasBorradas: 0, fotosBorradas: 0 });
+  }
+
+  const borrar = db.transaction((ids) => {
+    const placeholders = ids.map(() => '?').join(',');
+    const fotosBorradas = db
+      .prepare(`DELETE FROM fotos WHERE entrega_id IN (${placeholders})`)
+      .run(...ids).changes;
+    db.prepare(`DELETE FROM entregas WHERE id IN (${placeholders})`).run(...ids);
+    return fotosBorradas;
+  });
+  const fotosBorradas = borrar(idsEntregas);
+
+  res.json({ ok: true, entregasBorradas: idsEntregas.length, fotosBorradas });
 });
 
 // --- Servir el contenido de una fotografía (respeta permisos por rol) ---
