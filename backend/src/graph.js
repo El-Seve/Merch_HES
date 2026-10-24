@@ -92,6 +92,36 @@ async function subirFoto({ buffer, nombreArchivo, nombreTienda, fechaISO }) {
   return { path: rutaCompleta, demo: false };
 }
 
+/**
+ * Genera (y valida) un link directo de OneDrive para que el NAVEGADOR descargue
+ * la foto directo de Microsoft, sin pasar por Render — así no se gasta banda
+ * ancha de Render cada vez que alguien mira una evidencia en el panel.
+ *
+ * Por qué valida con un HEAD antes de confiar en el link: OneDrive a veces
+ * entrega un link de "vista previa" (una página HTML) en vez del archivo
+ * binario. Si no fuera una imagen de verdad, devolvemos null y quien llama
+ * cae de nuevo al proxy de siempre (más lento/con banda, pero siempre funciona).
+ */
+async function obtenerLinkDirecto(rutaRelativa) {
+  if (MODO === 'demo') return null;
+  try {
+    const salida = await ejecutarRclone(['link', `${REMOTE}:${rutaRelativa}`]);
+    let link = salida.toString('utf8').trim();
+    if (!link) return null;
+    // Truco conocido para OneDrive personal: "/redir?" abre la vista previa en
+    // HTML; "/download?" fuerza la descarga directa del archivo real.
+    if (link.includes('onedrive.live.com') && link.includes('/redir?')) {
+      link = link.replace('/redir?', '/download?');
+    }
+    const resp = await fetch(link, { method: 'HEAD', redirect: 'follow' });
+    const tipo = resp.headers.get('content-type') || '';
+    if (resp.ok && tipo.startsWith('image/')) return link;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /** Descarga bytes de una foto ya subida (para incrustarla en el PPTX o mostrarla en el panel). */
 async function descargarFoto(fotoDb) {
   if (MODO === 'demo' || fotoDb.demo) {
@@ -182,6 +212,7 @@ module.exports = {
   onedriveConectado,
   subirFoto,
   descargarFoto,
+  obtenerLinkDirecto,
   listarArchivos,
   leerArchivoPorRuta,
   subirArchivoSistema,

@@ -280,9 +280,36 @@ router.get('/fotos/:id/contenido', async (req, res) => {
       onedrive_path: foto.onedrive_path,
     });
     res.set('Content-Type', 'image/jpeg');
+    res.set('Cache-Control', 'private, max-age=604800, immutable');
     res.send(buffer);
   } catch (e) {
     res.status(500).json({ error: 'No se pudo obtener la fotografía' });
+  }
+});
+
+// --- Link directo a OneDrive para una foto (evita gastar banda ancha de Render) ---
+// El panel de Evidencias consulta esto primero: si hay link, el navegador carga
+// la foto DIRECTO de OneDrive (no pasa por Render). Si no hay (modo demo, o no
+// se pudo validar el link), el frontend cae de vuelta al proxy de /contenido.
+router.get('/fotos/:id/enlace', async (req, res) => {
+  const foto = db.prepare('SELECT * FROM fotos WHERE id = ?').get(req.params.id);
+  if (!foto) return res.status(404).end();
+  const entrega = db.prepare('SELECT * FROM entregas WHERE id = ?').get(foto.entrega_id);
+  if (req.usuario.rol === 'promotor' && entrega.promotor_id !== req.usuario.promotor_id) {
+    return res.status(403).end();
+  }
+  if (foto.estado !== 'completo' || graph.MODO !== 'produccion') {
+    return res.json({ url: null });
+  }
+  try {
+    let link = foto.link_publico;
+    if (!link) {
+      link = await graph.obtenerLinkDirecto(foto.onedrive_path);
+      if (link) db.prepare('UPDATE fotos SET link_publico = ? WHERE id = ?').run(link, foto.id);
+    }
+    res.json({ url: link || null });
+  } catch {
+    res.json({ url: null });
   }
 });
 

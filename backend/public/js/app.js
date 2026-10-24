@@ -363,10 +363,20 @@ function renderEntrega(e) {
 }
 // nota: las imágenes van con Authorization vía fetch+blob para respetar permisos; el <img src> directo no envía el header,
 // así que se resuelven abajo tras el render.
+// Primero preguntamos si hay un link directo a OneDrive (no gasta banda de Render);
+// si no lo hay, caemos al proxy de siempre (descarga autenticada + blob).
 function reemplazarImagenesConAuth() {
   document.querySelectorAll('.fotos-mini img').forEach(async (img) => {
     const url = img.getAttribute('src').split('?')[0];
+    const idMatch = url.match(/\/fotos\/(\d+)\/contenido/);
     try {
+      if (idMatch) {
+        const r = await fetch(`/api/entregas/fotos/${idMatch[1]}/enlace`, {
+          headers: { Authorization: `Bearer ${TOKEN}` },
+        });
+        const data = await r.json();
+        if (data.url) { img.src = data.url; return; }
+      }
       const resp = await fetch(url, { headers: { Authorization: `Bearer ${TOKEN}` } });
       const blob = await resp.blob();
       img.src = URL.createObjectURL(blob);

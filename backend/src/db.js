@@ -74,10 +74,19 @@ CREATE TABLE IF NOT EXISTS fotos (
 );
 
 CREATE INDEX IF NOT EXISTS idx_fotos_entrega ON fotos(entrega_id);
+
 CREATE INDEX IF NOT EXISTS idx_entregas_tienda ON entregas(tienda_id);
 CREATE INDEX IF NOT EXISTS idx_entregas_promotor ON entregas(promotor_id);
 CREATE INDEX IF NOT EXISTS idx_entregas_fecha ON entregas(fecha);
 `);
+
+// Migración ligera: agrega la columna si la base de datos ya existía sin ella
+// (SQLite no soporta "ADD COLUMN IF NOT EXISTS" en versiones viejas, por eso el try/catch).
+try {
+  db.exec('ALTER TABLE fotos ADD COLUMN link_publico TEXT');
+} catch (e) {
+  // ya existe, no hacer nada
+}
 
 /**
  * Reserva el siguiente correlativo global (0001-9999).
