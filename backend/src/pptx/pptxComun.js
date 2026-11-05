@@ -1,4 +1,8 @@
+const sharp = require('sharp');
 const graph = require('../graph');
+
+// Menos caché de sharp = menos memoria (el plan Free de Render tiene 512 MB).
+sharp.cache(false);
 
 // Medidas tomadas de Plantilla_Liquidación_Merch.pptx (slide 13.333" x 7.5", grilla 5x2, texto plano sin decoración)
 const ANCHO = 13.333;
@@ -12,6 +16,12 @@ const GAP = 0.15;
 const CELDA_ANCHO = (ANCHO - 2 * MARGEN_X - (COLS - 1) * GAP) / COLS;
 const CELDA_ALTO = (GRID_ALTO - (ROWS - 1) * GAP) / ROWS;
 const FOTOS_POR_SLIDE = COLS * ROWS;
+
+// Cada celda mide ~2.4" x 2.8": con 900 px por lado sobra calidad (>300 dpi) y
+// cada foto pesa ~100 KB en vez de 1 MB, que es lo que hacía lenta la
+// generación y reventaba la memoria del servidor.
+const IMG_MAX_PX = 900;
+const IMG_CALIDAD = 72;
 
 function configurarPresentacion(pres) {
   pres.layout = 'LAYOUT_WIDE'; // 13.333" x 7.5" — igual a la plantilla
@@ -53,12 +63,62 @@ function separadorTienda(pres, { tiendaNombre, resumenTexto }) {
   }
 }
 
+/** Reduce y comprime una foto para incrustarla; devuelve base64 + dimensiones reales. */
+async function prepararImagen(buffer) {
+  const { data, info } = await sharp(buffer)
+    .resize({ width: IMG_MAX_PX, height: IMG_MAX_PX, fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality: IMG_CALIDAD, mozjpeg: true })
+    .toBuffer({ resolveWithObject: true });
+  return { b64: data.toString('base64'), w: info.width, h: info.height };
+}
+
+/** Coloca la imagen centrada en su celda, respetando su proporción (sin deformarla). */
+function agregarImagenEnCelda(slide, img, x, y, celdaAncho, celdaAlto) {
+  const escala = Math.min(celdaAncho / img.w, celdaAlto / img.h);
+  const w = img.w * escala;
+  const h = img.h * escala;
+  slide.addImage({
+    data: `image/jpeg;base64,${img.b64}`,
+    x: x + (celdaAncho - w) / 2,
+    y: y + (celdaAlto - h) / 2,
+    w,
+    h,
+  });
+}
+
+function marcarNoDisponible(slide, x, y, celdaAncho, celdaAlto) {
+  slide.addText('Foto no disponible', {
+    x, y, w: celdaAncho, h: celdaAlto,
+    align: 'center', valign: 'middle', fontFace: 'Arial', fontSize: 10, color: 'C85C4A',
+    isTextBox: true,
+  });
+}
+
+/**
+ * Descarga y prepara en paralelo las fotos de un bloque (el tope global de
+ * rclone en graph.js evita saturar el servidor). Nunca lanza: si una foto
+ * falla devuelve null en su lugar.
+ */
+async function prepararBloque(items, leerBuffer, onFoto) {
+  return Promise.all(
+    items.map(async (item) => {
+      try {
+        return await prepararImagen(await leerBuffer(item));
+      } catch {
+        return null;
+      } finally {
+        if (onFoto) onFoto();
+      }
+    })
+  );
+}
+
 /**
  * Añade una o más diapositivas de evidencias para UNA entrega (un promotor,
  * una fecha, un tipo de merchandising), repartiendo sus fotos en bloques de
  * hasta 10 (5x2), igual que la plantilla.
  */
-async function agregarSlidesDeEntrega(pres, { tiendaNombre, entrega }) {
+async function agregarSlidesDeEntrega(pres, { tiendaNombre, entrega, onFoto }) {
   const fotosCompletas = (entrega.fotos || []).filter((f) => f.estado === 'completo');
   if (fotosCompletas.length === 0) return 0;
 
@@ -74,6 +134,8 @@ async function agregarSlidesDeEntrega(pres, { tiendaNombre, entrega }) {
 
   let slidesCreadas = 0;
   for (const bloque of bloques) {
+    const imagenes = await prepararBloque(bloque, (foto) => graph.descargarFoto(foto), onFoto);
+
     const slide = pres.addSlide();
     slide.background = { color: 'FFFFFF' };
 
@@ -92,30 +154,14 @@ async function agregarSlidesDeEntrega(pres, { tiendaNombre, entrega }) {
       }
     );
 
-    for (let idx = 0; idx < bloque.length; idx++) {
-      const foto = bloque[idx];
+    imagenes.forEach((img, idx) => {
       const col = idx % COLS;
       const row = Math.floor(idx / COLS);
       const x = MARGEN_X + col * (CELDA_ANCHO + GAP);
       const y = GRID_Y + row * (CELDA_ALTO + GAP);
-      try {
-        const buffer = await graph.descargarFoto(foto);
-        const b64 = buffer.toString('base64');
-        const ext = (foto.extension || 'jpg').toLowerCase();
-        const mime = ext === 'png' ? 'image/png' : 'image/jpeg';
-        slide.addImage({
-          data: `${mime};base64,${b64}`,
-          x, y, w: CELDA_ANCHO, h: CELDA_ALTO,
-          sizing: { type: 'contain', w: CELDA_ANCHO, h: CELDA_ALTO },
-        });
-      } catch (e) {
-        slide.addText('Foto no disponible', {
-          x, y, w: CELDA_ANCHO, h: CELDA_ALTO,
-          align: 'center', valign: 'middle', fontFace: 'Arial', fontSize: 10, color: 'C85C4A',
-          isTextBox: true,
-        });
-      }
-    }
+      if (img) agregarImagenEnCelda(slide, img, x, y, CELDA_ANCHO, CELDA_ALTO);
+      else marcarNoDisponible(slide, x, y, CELDA_ANCHO, CELDA_ALTO);
+    });
     slidesCreadas++;
   }
   return slidesCreadas;
@@ -126,4 +172,7 @@ module.exports = {
   portada,
   separadorTienda,
   agregarSlidesDeEntrega,
+  prepararBloque,
+  agregarImagenEnCelda,
+  marcarNoDisponible,
 };

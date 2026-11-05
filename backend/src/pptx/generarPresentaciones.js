@@ -1,7 +1,7 @@
 const pptxgen = require('pptxgenjs');
 const { configurarPresentacion, portada, separadorTienda, agregarSlidesDeEntrega } = require('./pptxComun');
 
-async function generarPptxTienda({ tiendaNombre, entregas, periodoTexto }) {
+async function generarPptxTienda({ tiendaNombre, entregas, periodoTexto, onFoto }) {
   const pres = new pptxgen();
   configurarPresentacion(pres);
   portada(pres, {
@@ -12,12 +12,12 @@ async function generarPptxTienda({ tiendaNombre, entregas, periodoTexto }) {
 
   let totalSlides = 0;
   for (const entrega of entregas) {
-    totalSlides += await agregarSlidesDeEntrega(pres, { tiendaNombre, entrega });
+    totalSlides += await agregarSlidesDeEntrega(pres, { tiendaNombre, entrega, onFoto });
   }
   return { buffer: await pres.write({ outputType: 'nodebuffer' }), slidesConFotos: totalSlides };
 }
 
-async function generarPptxConsolidado({ entregasPorTienda, periodoTexto, resumen }) {
+async function generarPptxConsolidado({ entregasPorTienda, periodoTexto, resumen, onFoto }) {
   const pres = new pptxgen();
   configurarPresentacion(pres);
   portada(pres, {
@@ -48,7 +48,7 @@ async function generarPptxConsolidado({ entregasPorTienda, periodoTexto, resumen
       resumenTexto: `${entregas.length} entrega(s)`,
     });
     for (const entrega of entregas) {
-      totalSlides += await agregarSlidesDeEntrega(pres, { tiendaNombre, entrega });
+      totalSlides += await agregarSlidesDeEntrega(pres, { tiendaNombre, entrega, onFoto });
     }
   }
   return { buffer: await pres.write({ outputType: 'nodebuffer' }), slidesConFotos: totalSlides };

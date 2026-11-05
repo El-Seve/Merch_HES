@@ -1,5 +1,10 @@
 const sharp = require('sharp');
 
+// Memoria acotada para el plan Free de Render (512 MB): un hilo por operación y sin
+// caché interna. Las fotos ya se procesan de a 4 en paralelo, así que casi no se pierde velocidad.
+sharp.concurrency(1);
+sharp.cache(false);
+
 const ANCHO_MAX = 1920; // suficiente para ver detalle en la foto, pero baja bastante el peso
 const CALIDAD_JPEG = 85; // visualmente indistinguible del original para fines de evidencia
 
@@ -37,12 +42,17 @@ function construirSvgMarcaAgua({ ancho, alto, lineas }) {
  * real ya procesado, como pide la especificación original).
  */
 async function procesarImagen(buffer, { tiendaNombre, promotorNombre, fechaISO }) {
-  const redimensionada = await sharp(buffer, { failOn: 'none' })
-    .rotate() // respeta la orientación EXIF de fotos tomadas con celular
-    .resize({ width: ANCHO_MAX, height: ANCHO_MAX, fit: 'inside', withoutEnlargement: true })
-    .toBuffer();
+  // Se calcula el tamaño final con solo leer la cabecera de la foto, así todo el
+  // trabajo (girar, reducir, marca de agua, comprimir) ocurre en UNA sola pasada:
+  // menos memoria y un solo paso de compresión JPEG (antes eran dos, con pérdida extra).
+  const meta = await sharp(buffer, { failOn: 'none' }).metadata();
+  let ancho = meta.width;
+  let alto = meta.height;
+  if (meta.orientation && meta.orientation >= 5) [ancho, alto] = [alto, ancho]; // foto girada por EXIF
+  const escala = Math.min(1, ANCHO_MAX / Math.max(ancho, alto));
+  const anchoFinal = Math.max(1, Math.floor(ancho * escala));
+  const altoFinal = Math.max(1, Math.floor(alto * escala));
 
-  const metadata = await sharp(redimensionada).metadata();
   // Hora de Lima (UTC-5, sin horario de verano) sin importar en qué región del
   // mundo esté corriendo el servidor (Render puede correr en UTC u otra zona).
   const horaTexto = new Date().toLocaleTimeString('es-PE', {
@@ -53,14 +63,16 @@ async function procesarImagen(buffer, { tiendaNombre, promotorNombre, fechaISO }
   });
 
   const svg = construirSvgMarcaAgua({
-    ancho: metadata.width,
-    alto: metadata.height,
+    ancho: anchoFinal,
+    alto: altoFinal,
     lineas: [tiendaNombre, `${promotorNombre} · ${fechaISO} ${horaTexto}`],
   });
 
-  return sharp(redimensionada)
+  return sharp(buffer, { failOn: 'none' })
+    .rotate() // respeta la orientación EXIF de fotos tomadas con celular
+    .resize({ width: ANCHO_MAX, height: ANCHO_MAX, fit: 'inside', withoutEnlargement: true })
     .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
-    .jpeg({ quality: CALIDAD_JPEG })
+    .jpeg({ quality: CALIDAD_JPEG, mozjpeg: true })
     .toBuffer();
 }
 

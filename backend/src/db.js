@@ -157,12 +157,20 @@ function sembrarCatalogoProvisional() {
  * usan las fotos). `wal_checkpoint` vuelca todo lo pendiente al archivo
  * principal antes de copiarlo, para que el respaldo quede 100% consistente.
  */
-async function respaldarBaseDeDatos() {
+let ultimoHashRespaldado = null;
+
+async function respaldarBaseDeDatos({ forzar = false } = {}) {
   if (graph.MODO !== 'produccion') return;
   try {
     db.pragma('wal_checkpoint(TRUNCATE)');
     const buffer = fs.readFileSync(DB_PATH);
+    // Si nada cambió desde el último respaldo no se vuelve a subir: antes se
+    // subía el archivo completo cada 2 minutos aunque nadie hubiera tocado nada,
+    // y eso consumía banda ancha de Render todo el día.
+    const hash = require('crypto').createHash('sha1').update(buffer).digest('hex');
+    if (!forzar && hash === ultimoHashRespaldado) return;
     await graph.subirArchivoSistema(buffer, 'merch.db');
+    ultimoHashRespaldado = hash;
   } catch (e) {
     console.error('No se pudo respaldar la base de datos en OneDrive:', e.message);
   }
@@ -176,7 +184,7 @@ function programarRespaldoPeriodico() {
   if (graph.MODO !== 'produccion') return;
 
   respaldarBaseDeDatos(); // asegura que el catálogo recién sembrado también quede a salvo
-  intervaloRespaldo = setInterval(respaldarBaseDeDatos, INTERVALO_RESPALDO_MS);
+  intervaloRespaldo = setInterval(() => respaldarBaseDeDatos(), INTERVALO_RESPALDO_MS);
 
   const respaldoFinal = async (señal) => {
     clearInterval(intervaloRespaldo);

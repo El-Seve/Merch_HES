@@ -4,7 +4,7 @@
   "description": "App de registro de evidencias de merchandising HES - backend",
   "main": "src/server.js",
   "scripts": {
-    "start": "node src/server.js",
+    "start": "MALLOC_ARENA_MAX=2 node --max-old-space-size=320 src/server.js",
     "dev": "node --watch src/server.js",
     "postinstall": "bash scripts/setup-rclone.sh"
   },

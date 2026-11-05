@@ -1,3 +1,8 @@
+// Plan Free de Render = 512 MB de RAM. Con los 4 hilos por defecto, el procesamiento de
+// fotos (sharp/libvips) fragmentaba memoria hasta ~440 MB; con 2 el pico baja a ~300 MB.
+// Debe fijarse antes de que Node use el pool de hilos por primera vez.
+if (!process.env.UV_THREADPOOL_SIZE) process.env.UV_THREADPOOL_SIZE = '2';
+
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -69,7 +74,7 @@ app.post('/api/admin/respaldar-ahora', middlewareAuth, soloAdmin, async (req, re
   if (graph.MODO !== 'produccion') {
     return res.status(400).json({ error: 'El respaldo solo aplica en modo producción (con OneDrive conectado).' });
   }
-  await respaldarBaseDeDatos();
+  await respaldarBaseDeDatos({ forzar: true });
   res.json({ ok: true });
 });
 

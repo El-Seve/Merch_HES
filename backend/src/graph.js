@@ -25,21 +25,41 @@ function prepararConfigRclone() {
 }
 prepararConfigRclone();
 
+// Tope global de procesos rclone simultáneos. Sin esto, abrir el panel de
+// Evidencias o generar una presentación lanzaba cientos de procesos a la vez,
+// reventaba la memoria del plan Free de Render (512 MB) y todo se ponía lentísimo.
+const MAX_RCLONE_SIMULTANEOS = 4;
+let rcloneActivos = 0;
+const colaRclone = [];
+
 function ejecutarRclone(args) {
   return new Promise((resolve, reject) => {
+    colaRclone.push({ args, resolve, reject });
+    atenderColaRclone();
+  });
+}
+
+function atenderColaRclone() {
+  while (rcloneActivos < MAX_RCLONE_SIMULTANEOS && colaRclone.length) {
+    const { args, resolve, reject } = colaRclone.shift();
+    rcloneActivos++;
     execFile(
       RCLONE_BIN,
-      args,
+      // timeouts para que una conexión colgada no bloquee la cola para siempre
+      [...args, '--contimeout', '20s', '--timeout', '90s', '--low-level-retries', '3'],
       { maxBuffer: 1024 * 1024 * 50, encoding: 'buffer', env: { ...process.env, RCLONE_CONFIG: RCLONE_CONF_PATH } },
       (error, stdout, stderr) => {
+        rcloneActivos--;
         if (error) {
           error.stderrTexto = stderr ? stderr.toString('utf8') : '';
-          return reject(error);
+          reject(error);
+        } else {
+          resolve(stdout);
         }
-        resolve(stdout);
+        atenderColaRclone();
       }
     );
-  });
+  }
 }
 
 async function onedriveConectado() {
@@ -102,8 +122,14 @@ async function subirFoto({ buffer, nombreArchivo, nombreTienda, fechaISO }) {
  * binario. Si no fuera una imagen de verdad, devolvemos null y quien llama
  * cae de nuevo al proxy de siempre (más lento/con banda, pero siempre funciona).
  */
+let fallosEnlaceDirecto = 0;
+let enlaceDirectoPausadoHasta = 0;
+
 async function obtenerLinkDirecto(rutaRelativa) {
   if (MODO === 'demo') return null;
+  // Si el link directo falló varias veces seguidas (OneDrive no sirve imágenes
+  // por ese medio), dejamos de intentarlo una hora en vez de gastar tiempo en cada foto.
+  if (Date.now() < enlaceDirectoPausadoHasta) return null;
   try {
     const salida = await ejecutarRclone(['link', `${REMOTE}:${rutaRelativa}`]);
     let link = salida.toString('utf8').trim();
@@ -115,10 +141,23 @@ async function obtenerLinkDirecto(rutaRelativa) {
     }
     const resp = await fetch(link, { method: 'HEAD', redirect: 'follow' });
     const tipo = resp.headers.get('content-type') || '';
-    if (resp.ok && tipo.startsWith('image/')) return link;
+    if (resp.ok && tipo.startsWith('image/')) {
+      fallosEnlaceDirecto = 0;
+      return link;
+    }
+    registrarFalloEnlaceDirecto();
     return null;
   } catch {
+    registrarFalloEnlaceDirecto();
     return null;
+  }
+}
+
+function registrarFalloEnlaceDirecto() {
+  fallosEnlaceDirecto++;
+  if (fallosEnlaceDirecto >= 3) {
+    enlaceDirectoPausadoHasta = Date.now() + 60 * 60 * 1000;
+    fallosEnlaceDirecto = 0;
   }
 }
 

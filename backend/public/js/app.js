@@ -305,7 +305,17 @@ function subirConProgreso(url, formData, onProgreso) {
 }
 
 // --- Evidencias: filtros + listado ---
-$('btn-filtrar').onclick = cargarEvidencias;
+const EV_POR_PAGINA = 20;
+let EV_DESPLAZAMIENTO = 0;
+
+function parametrosFiltroEvidencias() {
+  const params = new URLSearchParams();
+  if ($('f-tienda').value) params.set('tienda_id', $('f-tienda').value);
+  if (USUARIO.rol === 'admin' && $('f-promotor').value) params.set('promotor_id', $('f-promotor').value);
+  if ($('f-desde').value) params.set('desde', $('f-desde').value);
+  if ($('f-hasta').value) params.set('hasta', $('f-hasta').value);
+  return params;
+}
 
 async function cargarEvidencias() {
   if (USUARIO.rol === 'admin') {
@@ -319,27 +329,52 @@ async function cargarEvidencias() {
     `;
   }
 
-  const params = new URLSearchParams();
-  if ($('f-tienda').value) params.set('tienda_id', $('f-tienda').value);
-  if (USUARIO.rol === 'admin' && $('f-promotor').value) params.set('promotor_id', $('f-promotor').value);
-  if ($('f-desde').value) params.set('desde', $('f-desde').value);
-  if ($('f-hasta').value) params.set('hasta', $('f-hasta').value);
-
+  EV_DESPLAZAMIENTO = 0;
   $('lista-entregas').innerHTML = '<div class="estado-cargando">Cargando...</div>';
-  const entregas = await api(`/api/entregas?${params}`);
-  if (entregas.length === 0) {
-    $('lista-entregas').innerHTML = '<div class="estado-vacio">No hay entregas para estos filtros.</div>';
-    return;
+  const hayMas = await agregarPaginaEvidencias(true);
+  void hayMas;
+}
+
+// Trae UNA página de entregas (20 a la vez, no todo el histórico) y la agrega al listado.
+async function agregarPaginaEvidencias(reemplazar) {
+  const params = parametrosFiltroEvidencias();
+  params.set('limite', EV_POR_PAGINA + 1); // uno extra solo para saber si hay más
+  params.set('desplazamiento', EV_DESPLAZAMIENTO);
+  let entregas = await api(`/api/entregas?${params}`);
+  const hayMas = entregas.length > EV_POR_PAGINA;
+  if (hayMas) entregas = entregas.slice(0, EV_POR_PAGINA);
+  EV_DESPLAZAMIENTO += entregas.length;
+
+  const contenedor = $('lista-entregas');
+  if (reemplazar && entregas.length === 0) {
+    contenedor.innerHTML = '<div class="estado-vacio">No hay entregas para estos filtros.</div>';
+    return false;
   }
-  $('lista-entregas').innerHTML = entregas.map(renderEntrega).join('');
-  document.querySelectorAll('[data-reintentar]').forEach((b) => {
+  const antiguo = document.getElementById('btn-ver-mas');
+  if (antiguo) antiguo.remove();
+  if (reemplazar) contenedor.innerHTML = '';
+  contenedor.insertAdjacentHTML('beforeend', entregas.map(renderEntrega).join(''));
+  if (hayMas) {
+    contenedor.insertAdjacentHTML('beforeend',
+      '<button id="btn-ver-mas" class="btn-secundario btn-bloque" style="margin-top:12px">Ver más entregas</button>');
+    $('btn-ver-mas').onclick = async (ev) => {
+      ev.target.disabled = true; ev.target.textContent = 'Cargando...';
+      await agregarPaginaEvidencias(false);
+    };
+  }
+  contenedor.querySelectorAll('[data-reintentar]:not([data-listo])').forEach((b) => {
+    b.dataset.listo = '1';
     b.onclick = async () => {
       b.disabled = true; b.textContent = 'Reintentando...';
       await api(`/api/entregas/${b.dataset.reintentar}/reintentar`, { method: 'POST' });
       cargarEvidencias();
     };
   });
+  observarMiniaturas();
+  return hayMas;
 }
+
+$('btn-filtrar').onclick = cargarEvidencias;
 
 function renderEntrega(e) {
   const badge = (estado) => `<span class="badge ${estado}">${estado}</span>`;
@@ -355,36 +390,80 @@ function renderEntrega(e) {
     </div>
     ${e.observaciones ? `<div style="font-size:13px;margin-top:4px">${e.observaciones}</div>` : ''}
     <div class="fotos-mini">
-      ${e.fotos.map((f) => `<img src="/api/entregas/fotos/${f.id}/contenido?t=${TOKEN.slice(0,8)}" onerror="this.style.opacity=0.3" title="${f.estado}">`).join('')}
+      ${e.fotos.map((f) => `<img data-foto="${f.id}" alt="" title="${f.estado}" style="background:#e8ecee">`).join('')}
     </div>
     <div style="font-size:12px;color:#6b7378;margin-top:4px">${fotosOk} guardada(s) · ${fotosMal} pendiente(s)/fallida(s)</div>
     ${fotosMal > 0 ? `<button data-reintentar="${e.id}" class="btn-secundario" style="margin-top:8px">Reintentar cargas fallidas</button>` : ''}
   </div>`;
 }
-// nota: las imágenes van con Authorization vía fetch+blob para respetar permisos; el <img src> directo no envía el header,
-// así que se resuelven abajo tras el render.
-// Primero preguntamos si hay un link directo a OneDrive (no gasta banda de Render);
-// si no lo hay, caemos al proxy de siempre (descarga autenticada + blob).
-function reemplazarImagenesConAuth() {
-  document.querySelectorAll('.fotos-mini img').forEach(async (img) => {
-    const url = img.getAttribute('src').split('?')[0];
-    const idMatch = url.match(/\/fotos\/(\d+)\/contenido/);
-    try {
-      if (idMatch) {
-        const r = await fetch(`/api/entregas/fotos/${idMatch[1]}/enlace`, {
-          headers: { Authorization: `Bearer ${TOKEN}` },
-        });
-        const data = await r.json();
-        if (data.url) { img.src = data.url; return; }
-      }
-      const resp = await fetch(url, { headers: { Authorization: `Bearer ${TOKEN}` } });
-      const blob = await resp.blob();
-      img.src = URL.createObjectURL(blob);
-    } catch {}
+
+// --- Miniaturas: se cargan solo las que se ven en pantalla, de pocas en pocas ---
+// Antes el navegador pedía TODAS las fotos completas al mismo tiempo apenas se
+// abría el panel; con cientos de fotos eso saturaba el servidor y la pantalla.
+const COLA_MINIATURAS = [];
+let MINIATURAS_ACTIVAS = 0;
+const MAX_MINIATURAS_A_LA_VEZ = 4;
+
+const observadorMiniaturas = ('IntersectionObserver' in window)
+  ? new IntersectionObserver((entradas) => {
+      entradas.forEach((en) => {
+        if (en.isIntersecting) {
+          observadorMiniaturas.unobserve(en.target);
+          encolarMiniatura(en.target);
+        }
+      });
+    }, { rootMargin: '300px' })
+  : null;
+
+function observarMiniaturas() {
+  document.querySelectorAll('.fotos-mini img[data-foto]:not([data-observada])').forEach((img) => {
+    img.dataset.observada = '1';
+    if (observadorMiniaturas) observadorMiniaturas.observe(img);
+    else encolarMiniatura(img);
   });
 }
-const _cargarEvidenciasOriginal = cargarEvidencias;
-cargarEvidencias = async function () { await _cargarEvidenciasOriginal(); reemplazarImagenesConAuth(); };
+
+function encolarMiniatura(img) {
+  COLA_MINIATURAS.push(img);
+  atenderColaMiniaturas();
+}
+
+function atenderColaMiniaturas() {
+  while (MINIATURAS_ACTIVAS < MAX_MINIATURAS_A_LA_VEZ && COLA_MINIATURAS.length) {
+    const img = COLA_MINIATURAS.shift();
+    MINIATURAS_ACTIVAS++;
+    cargarMiniatura(img).finally(() => { MINIATURAS_ACTIVAS--; atenderColaMiniaturas(); });
+  }
+}
+
+async function cargarMiniatura(img) {
+  try {
+    const resp = await fetch(`/api/entregas/fotos/${img.dataset.foto}/contenido?mini=1`, {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+    if (!resp.ok) throw new Error('sin miniatura');
+    img.src = URL.createObjectURL(await resp.blob());
+    img.style.cursor = 'zoom-in';
+    img.onclick = () => abrirFotoCompleta(img.dataset.foto);
+  } catch {
+    img.style.opacity = 0.3;
+  }
+}
+
+// Al tocar una miniatura se abre la foto completa: directo desde OneDrive si hay
+// link válido (no gasta banda de Render), o por el servidor como respaldo.
+async function abrirFotoCompleta(id) {
+  const ventana = window.open('', '_blank');
+  try {
+    const r = await fetch(`/api/entregas/fotos/${id}/enlace`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+    const data = await r.json();
+    if (data.url) { ventana.location = data.url; return; }
+    const resp = await fetch(`/api/entregas/fotos/${id}/contenido`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+    ventana.location = URL.createObjectURL(await resp.blob());
+  } catch {
+    if (ventana) ventana.close();
+  }
+}
 
 // --- Presentaciones (admin) ---
 $('btn-pres-tienda').onclick = () => generarPresentacion('/api/presentaciones/por-tienda', 'p-msg');
@@ -393,23 +472,53 @@ $('btn-pres-recuperacion').onclick = () => generarPresentacion('/api/presentacio
 
 async function generarPresentacion(ruta, idMensaje) {
   const msg = $(idMensaje);
-  msg.innerHTML = '<div class="estado-cargando">Generando presentación...</div>';
+  const botones = ['btn-pres-tienda', 'btn-pres-consolidada', 'btn-pres-recuperacion'].map($);
+  const bloquear = (v) => botones.forEach((b) => { b.disabled = v; });
+  const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  bloquear(true);
+  msg.innerHTML = '<div class="estado-cargando">Iniciando...</div>';
   const tienda_ids = Array.from($('p-tiendas').selectedOptions).map((o) => Number(o.value));
   try {
-    const resp = await fetch(ruta, {
+    // 1) arranca el trabajo en el servidor (responde al toque)
+    const { jobId } = await api(ruta, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
-      body: JSON.stringify({
+      body: {
         tienda_ids,
         promotor_id: $('f-promotor').value || undefined,
         desde: $('f-desde').value || undefined,
         hasta: $('f-hasta').value || undefined,
-      }),
+      },
     });
+
+    // 2) consulta el avance cada pocos segundos hasta que esté listo
+    let fallosSeguidos = 0;
+    const limite = Date.now() + 20 * 60 * 1000;
+    for (;;) {
+      if (Date.now() > limite) throw new Error('Está tardando demasiado. Inténtalo con menos tiendas o un rango de fechas menor.');
+      await esperar(2000);
+      let est;
+      try {
+        est = await api(`/api/presentaciones/estado/${jobId}`);
+        fallosSeguidos = 0;
+      } catch (e) {
+        // un corte momentáneo de señal no debe tumbar todo
+        if (e.message.includes('No se encontró el trabajo') || ++fallosSeguidos >= 5) throw e;
+        continue;
+      }
+      if (est.estado === 'error') throw new Error(est.error || 'No se pudo generar la presentación.');
+      if (est.estado === 'listo') break;
+      const avance = est.total ? ` ${est.hecho} de ${est.total} fotos` : '';
+      msg.innerHTML = `<div class="estado-cargando">Armando presentación…${avance}</div>`;
+    }
+
+    // 3) descarga el archivo terminado
+    msg.innerHTML = '<div class="estado-cargando">Descargando...</div>';
+    const resp = await fetch(`/api/presentaciones/descargar/${jobId}`, { headers: { Authorization: `Bearer ${TOKEN}` } });
     if (!resp.ok) {
-      const err = await resp.json();
-      msg.innerHTML = `<div class="estado-error-app">${err.error}</div>`;
-      return;
+      let texto = 'No se pudo descargar la presentación.';
+      try { texto = (await resp.json()).error || texto; } catch {}
+      throw new Error(texto);
     }
     const blob = await resp.blob();
     const disposicion = resp.headers.get('Content-Disposition') || '';
@@ -419,6 +528,8 @@ async function generarPresentacion(ruta, idMensaje) {
     msg.innerHTML = '<div class="estado-ok-app">Presentación generada.</div>';
   } catch (e) {
     msg.innerHTML = `<div class="estado-error-app">${e.message}</div>`;
+  } finally {
+    bloquear(false);
   }
 }
 

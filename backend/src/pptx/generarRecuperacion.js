@@ -1,5 +1,8 @@
 const pptxgen = require('pptxgenjs');
-const { configurarPresentacion, portada, separadorTienda } = require('./pptxComun');
+const {
+  configurarPresentacion, portada, separadorTienda,
+  prepararBloque, agregarImagenEnCelda, marcarNoDisponible,
+} = require('./pptxComun');
 const graph = require('../graph');
 
 const ANCHO = 13.333;
@@ -34,13 +37,15 @@ function agruparPorTiendaYMes(rutas) {
   return arbol;
 }
 
-async function agregarSlidesDeCarpeta(pres, { tiendaNombre, anioMes, archivos }) {
+async function agregarSlidesDeCarpeta(pres, { tiendaNombre, anioMes, archivos, onFoto }) {
   const bloques = [];
   for (let i = 0; i < archivos.length; i += FOTOS_POR_SLIDE) {
     bloques.push(archivos.slice(i, i + FOTOS_POR_SLIDE));
   }
 
   for (const bloque of bloques) {
+    const imagenes = await prepararBloque(bloque, (item) => graph.leerArchivoPorRuta(item.ruta), onFoto);
+
     const slide = pres.addSlide();
     slide.background = { color: 'FFFFFF' };
     slide.addText(`${tiendaNombre} — ${anioMes}`, {
@@ -52,34 +57,21 @@ async function agregarSlidesDeCarpeta(pres, { tiendaNombre, anioMes, archivos })
       fontFace: 'Arial', fontSize: 12, color: '6B7378', isTextBox: true,
     });
 
-    for (let idx = 0; idx < bloque.length; idx++) {
-      const item = bloque[idx];
+    imagenes.forEach((img, idx) => {
       const col = idx % COLS;
       const row = Math.floor(idx / COLS);
       const x = MARGEN_X + col * (CELDA_ANCHO + GAP);
       const y = GRID_Y + row * (CELDA_ALTO + GAP);
-      try {
-        const buffer = await graph.leerArchivoPorRuta(item.ruta);
-        const b64 = buffer.toString('base64');
-        slide.addImage({
-          data: `image/jpeg;base64,${b64}`,
-          x, y, w: CELDA_ANCHO, h: CELDA_ALTO,
-          sizing: { type: 'contain', w: CELDA_ANCHO, h: CELDA_ALTO },
-        });
-      } catch (e) {
-        slide.addText('Foto no disponible', {
-          x, y, w: CELDA_ANCHO, h: CELDA_ALTO,
-          align: 'center', valign: 'middle', fontFace: 'Arial', fontSize: 10, color: 'C85C4A',
-          isTextBox: true,
-        });
-      }
-    }
+      if (img) agregarImagenEnCelda(slide, img, x, y, CELDA_ANCHO, CELDA_ALTO);
+      else marcarNoDisponible(slide, x, y, CELDA_ANCHO, CELDA_ALTO);
+    });
   }
 }
 
 /** Genera un PPTX consolidado leyendo directo de OneDrive (sin base de datos). */
-async function generarPptxRecuperacion() {
+async function generarPptxRecuperacion({ onTotal, onFoto } = {}) {
   const rutas = await graph.listarArchivos();
+  if (onTotal) onTotal(rutas.length);
   const arbol = agruparPorTiendaYMes(rutas);
   const tiendas = Object.keys(arbol).sort();
 
@@ -100,7 +92,7 @@ async function generarPptxRecuperacion() {
     const totalFotosTienda = mesesClaves.reduce((acc, c) => acc + arbol[tienda][c].length, 0);
     separadorTienda(pres, { tiendaNombre: tienda, resumenTexto: `${totalFotosTienda} foto(s)` });
     for (const anioMes of mesesClaves) {
-      await agregarSlidesDeCarpeta(pres, { tiendaNombre: tienda, anioMes, archivos: arbol[tienda][anioMes] });
+      await agregarSlidesDeCarpeta(pres, { tiendaNombre: tienda, anioMes, archivos: arbol[tienda][anioMes], onFoto });
     }
   }
 

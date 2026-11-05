@@ -6,17 +6,54 @@ const { db, reservarCorrelativo, correlativoFormateado } = require('../db');
 const graph = require('../graph');
 const { procesarImagen } = require('../imagenes');
 const { soloAdmin } = require('../auth');
+const sharp = require('sharp');
 
 const router = express.Router();
 const LIMITE_FOTOS_POR_ENTREGA = 100; // liquidaciones grandes pueden traer 50+ fotos
-const CONCURRENCIA_SUBIDA = 4; // cuántas fotos se procesan/suben en paralelo
+const CONCURRENCIA_SUBIDA = 2; // fotos procesadas en paralelo (más = más RAM; el plan Free tiene 512 MB)
+// Las fotos llegan directo a disco (no a la RAM): un lote de 50-100 fotos de
+// celular pesaba cientos de MB en memoria y el plan Free de Render (512 MB)
+// terminaba matando el servidor a mitad de la carga.
+const SUBIDAS_DIR = path.join(require('os').tmpdir(), 'merch-subidas');
+fs.mkdirSync(SUBIDAS_DIR, { recursive: true });
 const upload = multer({
-  storage: multer.memoryStorage(),
+  storage: multer.diskStorage({
+    destination: SUBIDAS_DIR,
+    filename: (req, file, cb) => cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}`),
+  }),
   limits: { fileSize: 25 * 1024 * 1024 },
 });
 
+function borrarSubidasTemporales(files) {
+  for (const f of files || []) fs.promises.unlink(f.path).catch(() => {});
+}
+
 const PENDIENTES_DIR = path.join(__dirname, '..', '..', 'data', 'pendientes');
 if (!fs.existsSync(PENDIENTES_DIR)) fs.mkdirSync(PENDIENTES_DIR, { recursive: true });
+
+// Miniaturas (200 px, ~8 KB) para el listado de Evidencias: antes cada cuadrito de
+// 56 px descargaba la foto completa, y con cientos de fotos el panel se arrastraba.
+const MINIATURAS_DIR = path.join(__dirname, '..', '..', 'data', 'miniaturas');
+if (!fs.existsSync(MINIATURAS_DIR)) fs.mkdirSync(MINIATURAS_DIR, { recursive: true });
+
+async function obtenerMiniatura(foto) {
+  const rutaCache = path.join(MINIATURAS_DIR, `${foto.correlativo}.jpg`);
+  if (fs.existsSync(rutaCache)) return fs.readFileSync(rutaCache);
+  const completa = foto.estado === 'completo';
+  const original = completa
+    ? await graph.descargarFoto({
+        demo: graph.MODO === 'demo',
+        onedrive_item_id: foto.onedrive_item_id,
+        onedrive_path: foto.onedrive_path,
+      })
+    : fs.readFileSync(path.join(PENDIENTES_DIR, foto.nombre_archivo));
+  const mini = await sharp(original)
+    .resize({ width: 200, height: 200, fit: 'cover' })
+    .jpeg({ quality: 70 })
+    .toBuffer();
+  if (completa) fs.writeFileSync(rutaCache, mini); // las pendientes pueden cambiar: no se cachean
+  return mini;
+}
 
 /** Corre `worker` sobre `items` con un máximo de `limite` tareas en paralelo. */
 async function limitarConcurrencia(items, limite, worker) {
@@ -67,6 +104,8 @@ function recalcularEstadoEntrega(entregaId) {
 
 // --- Registrar nueva entrega con sus fotografías ---
 router.post('/', upload.array('fotos', LIMITE_FOTOS_POR_ENTREGA), async (req, res) => {
+  // Pase lo que pase (éxito, error o corte de señal) se borran las fotos temporales de disco.
+  res.on('close', () => borrarSubidasTemporales(req.files));
   const { tienda_id, fecha, tipo_merch, cantidad, observaciones } = req.body;
 
   if (!tienda_id || !fecha || !tipo_merch || !cantidad) {
@@ -98,7 +137,7 @@ router.post('/', upload.array('fotos', LIMITE_FOTOS_POR_ENTREGA), async (req, re
       const n = reservarCorrelativo(); // síncrono -> sin condición de carrera, ver db.js
       const nombreArchivo = `Merch_${correlativoFormateado(n)}.jpg`;
       // Comprime, redimensiona y marca con agua (tienda/promotor/fecha) antes de guardar.
-      const bufferProcesado = await procesarImagen(archivo.buffer, {
+      const bufferProcesado = await procesarImagen(await fs.promises.readFile(archivo.path), {
         tiendaNombre: tienda.nombre,
         promotorNombre: promotor?.nombre || 'Promotor',
         fechaISO: fecha,
@@ -156,6 +195,8 @@ router.post('/:id/reintentar', async (req, res) => {
 // --- Consulta con filtros (tienda, promotor, rango de fechas) ---
 router.get('/', (req, res) => {
   const { tienda_id, promotor_id, desde, hasta } = req.query;
+  const limite = Math.min(parseInt(req.query.limite, 10) || 0, 200);
+  const desplazamiento = Math.max(parseInt(req.query.desplazamiento, 10) || 0, 0);
   const condiciones = [];
   const params = [];
 
@@ -187,9 +228,9 @@ router.get('/', (req, res) => {
        JOIN tiendas t ON t.id = e.tienda_id
        JOIN promotores p ON p.id = e.promotor_id
        ${where}
-       ORDER BY e.fecha DESC, e.id DESC`
+       ORDER BY e.fecha DESC, e.id DESC${limite ? ' LIMIT ? OFFSET ?' : ''}`
     )
-    .all(...params);
+    .all(...params, ...(limite ? [limite, desplazamiento] : []));
 
   const idsEntregas = entregas.map((e) => e.id);
   let fotosPorEntrega = {};
@@ -269,6 +310,12 @@ router.get('/fotos/:id/contenido', async (req, res) => {
     return res.status(403).end();
   }
   try {
+    if (req.query.mini) {
+      const mini = await obtenerMiniatura(foto);
+      res.set('Content-Type', 'image/jpeg');
+      res.set('Cache-Control', 'private, max-age=604800, immutable');
+      return res.send(mini);
+    }
     if (foto.estado !== 'completo') {
       // Aún en staging local: la mostramos igual para vista previa/reintento.
       const rutaStaging = path.join(PENDIENTES_DIR, foto.nombre_archivo);
